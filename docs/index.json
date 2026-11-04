@@ -3,23 +3,24 @@
   "blocklist": [],
   "data": [
     {
-      "schema_version": "1.0.0",
+      "schema_version": "1.0.2",
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "type": "add-on",
       "maintainer": "QuickScene",
       "license": [
         "SPDX:GPL-3.0-or-later"
       ],
       "blender_version_min": "5.2.0",
+      "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/quickscene",
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quickscene-1.0.0.zip",
-      "archive_size": 1435,
-      "archive_hash": "sha256:37363dad084e10ff44a2e8c854e287b7f4b06fd98f0b80adc36720b798d80dc8"
+      "archive_url": "./quickscene-1.0.2.zip",
+      "archive_size": 3386,
+      "archive_hash": "sha256:f690b1da2d1e375170ff23a53dfc980d7e280aeda580b20e219cf70aa99cd919"
     }
   ]
 }

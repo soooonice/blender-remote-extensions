@@ -9,9 +9,14 @@ addon_keymaps = []
 class QUICKSCENE_OT_switch_scene(bpy.types.Operator):
     bl_idname = "quickscene.switch_scene"
     bl_label = "Switch Scene"
+    bl_description = "Switch to the selected scene"
     bl_options = {'INTERNAL'}
 
     scene_name: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        return f"Switch to scene: {properties.scene_name}"
 
     def execute(self, context):
         window = context.window
@@ -27,9 +32,14 @@ class QUICKSCENE_OT_switch_scene(bpy.types.Operator):
 class QUICKSCENE_OT_switch_view_layer(bpy.types.Operator):
     bl_idname = "quickscene.switch_view_layer"
     bl_label = "Switch View Layer"
+    bl_description = "Switch to the selected view layer"
     bl_options = {'INTERNAL'}
 
     layer_name: bpy.props.StringProperty()
+
+    @classmethod
+        def description(cls, context, properties):
+        return f"Switch to view layer: {properties.layer_name}"
 
     def execute(self, context):
         window = context.window

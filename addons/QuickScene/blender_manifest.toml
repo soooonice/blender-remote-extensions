@@ -1,13 +1,15 @@
-schema_version = "1.0.0"
+schema_version = "1.0.2"
 
 id = "quickscene"
-version = "1.0.0"
+version = "1.0.2"
 name = "QuickScene"
 tagline = "Quick scene and view layer switching"
 maintainer = "QuickScene"
 type = "add-on"
 
 tags = ["User Interface"]
+
+website = "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/quickscene"
 
 blender_version_min = "5.2.0"
 
