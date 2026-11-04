@@ -38,7 +38,7 @@ class QUICKSCENE_OT_switch_view_layer(bpy.types.Operator):
     layer_name: bpy.props.StringProperty()
 
     @classmethod
-        def description(cls, context, properties):
+    def description(cls, context, properties):
         return f"Switch to view layer: {properties.layer_name}"
 
     def execute(self, context):

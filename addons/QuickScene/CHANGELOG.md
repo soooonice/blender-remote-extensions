@@ -1,6 +1,12 @@
 # QuickScene — Changelog
 
-## [1.0.1] - 2026-11-04
+## [1.0.3] - 2026-11-04
+
+### Fixed
+unexpected indent (__init__.py, line 41)
+
+
+## [1.0.2] - 2026-11-04
 
 ### test
 

@@ -3,11 +3,11 @@
   "blocklist": [],
   "data": [
     {
-      "schema_version": "1.0.2",
+      "schema_version": "1.0.3",
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "type": "add-on",
       "maintainer": "QuickScene",
       "license": [
@@ -18,9 +18,9 @@
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quickscene-1.0.2.zip",
-      "archive_size": 3386,
-      "archive_hash": "sha256:f690b1da2d1e375170ff23a53dfc980d7e280aeda580b20e219cf70aa99cd919"
+      "archive_url": "./quickscene-1.0.3.zip",
+      "archive_size": 3426,
+      "archive_hash": "sha256:cc131bf13f01047568e3aff79df6ab7ef2d63b327a5ac326220773f4269d2e94"
     }
   ]
 }
