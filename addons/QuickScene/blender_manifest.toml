@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+
+id = "quickscene"
+version = "1.0.0"
+name = "QuickScene"
+tagline = "Quick scene and view layer switching"
+maintainer = "QuickScene"
+type = "add-on"
+
+tags = ["User Interface"]
+
+blender_version_min = "5.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
