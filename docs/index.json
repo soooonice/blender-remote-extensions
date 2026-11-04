@@ -14,13 +14,13 @@
         "SPDX:GPL-3.0-or-later"
       ],
       "blender_version_min": "5.2.0",
-      "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/quickscene",
+      "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickScene",
       "tags": [
         "User Interface"
       ],
       "archive_url": "./quickscene-1.0.3.zip",
       "archive_size": 3426,
-      "archive_hash": "sha256:cc131bf13f01047568e3aff79df6ab7ef2d63b327a5ac326220773f4269d2e94"
+      "archive_hash": "sha256:af23bbda2d5e24573b48fb1b28754e6e3e3e950c3e8dbf928997cfcd0bc94e49"
     }
   ]
 }

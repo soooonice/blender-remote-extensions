@@ -9,7 +9,7 @@ type = "add-on"
 
 tags = ["User Interface"]
 
-website = "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/quickscene"
+website = "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickScene"
 
 blender_version_min = "5.2.0"
 
