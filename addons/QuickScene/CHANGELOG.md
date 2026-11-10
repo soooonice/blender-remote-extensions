@@ -1,5 +1,24 @@
 # QuickScene — Changelog
 
+## [1.2.0] - 2026-11-10
+
+### Added
+- Compact two-column scene/view-layer browser with alphabetical ordering.
+- Rename, creation-options and confirmed deletion buttons on every row.
+- Scene creation: New, Copy Settings, Linked Copy, Full Copy.
+- View-layer creation: New, Copy Settings, Blank.
+
+### Improved
+- Active name buttons are highlighted while retaining the original icons.
+- No headings, filtering toolbar or list-height drag controls.
+- Recreate the browser after deletion/cancellation to recalculate its height.
+- Validate stale targets and retain at least one scene/view layer.
+- Robust registration and shortcut cleanup; retain the global V shortcut.
+
+### Validation
+- Core operations tested with Blender 5.3.0 Beta; minimum-version metadata retained.
+
+
 ## [1.0.3] - 2026-11-04
 
 ### Fixed
