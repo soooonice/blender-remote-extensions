@@ -178,7 +178,7 @@ def draw_browser_item(context, layout, item):
     op.scene, op.layer = scene.name, layer
     actions = row.row(align=True)
     actions.ui_units_x = 3.0
-    for identifier, icon_name in [('quickscene.edit', 'GREASEPENCIL'), ('quickscene.new_menu', 'ADD'), ('quickscene.delete', 'TRASH')]:
+    for identifier, icon_name in [('quickscene.edit', 'BACK'), ('quickscene.new_menu', 'ADD'), ('quickscene.delete', 'REMOVE')]:
         button = actions.row(align=True)
         button.ui_units_x = 1.0
         if identifier == 'quickscene.delete':

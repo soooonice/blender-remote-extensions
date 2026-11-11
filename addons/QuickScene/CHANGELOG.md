@@ -1,5 +1,11 @@
 # QuickScene — Changelog
 
+## [1.2.1] - 2026-11-11
+
+### Update
+- Change Icon
+
+
 ## [1.2.0] - 2026-11-10
 
 ### Added
