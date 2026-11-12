@@ -20,8 +20,28 @@
         "User Interface"
       ],
       "archive_url": "./quickscene-1.2.1.zip",
-      "archive_size": 6088,
-      "archive_hash": "sha256:9c9d602ba1b36832e66b19ab602421c65583d9804cee530e1aaa19bc7398f539"
+      "archive_size": 7303,
+      "archive_hash": "sha256:5c8de6197fe00c36ecd4de6cbe5872ddef56bce69023c4eca0eb4078c51b665e"
+    },
+    {
+      "schema_version": "1.0.0",
+      "id": "quick_remap_users",
+      "name": "QuickRemapUsers",
+      "tagline": "Batch remap selected data-block users",
+      "version": "1.0.0",
+      "type": "add-on",
+      "maintainer": "QuickScene",
+      "license": [
+        "SPDX:GPL-3.0-or-later"
+      ],
+      "blender_version_min": "5.2.0",
+      "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickRemapUsers",
+      "tags": [
+        "User Interface"
+      ],
+      "archive_url": "./quick_remap_users-1.0.0.zip",
+      "archive_size": 4047,
+      "archive_hash": "sha256:9f67efb99485bd931d24afb7a66fa79fa084543ac2408c17a7a96b90f03e38bd"
     }
   ]
 }

@@ -1,10 +1,19 @@
 # QuickScene — Changelog
 
-## [1.2.1] - 2026-11-11
+## [1.2.1] - 2026-11-12
 
-### Update
-- Change Icon
+### Improved
+- Remove leading name icons while retaining the confirmed compact native layout.
+- Independently size scene and view-layer columns from their names, with width limits.
+- Recalculate column widths immediately after renaming.
+- Retain BACK / ADD / REMOVE actions and alphabetical ordering.
+- Release completed popup timers and avoid duplicate sorting.
+- Stop measuring names once the column width limit is reached.
+- Use a dedicated popup operator and fresh keymap references for cleanup.
 
+### Validation
+- Registration, re-registration, cleanup and core operations tested in Blender 5.3.0 Beta.
+- Original extension identity and minimum-version metadata retained.
 
 ## [1.2.0] - 2026-11-10
 
