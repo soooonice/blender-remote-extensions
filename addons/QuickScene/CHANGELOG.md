@@ -1,5 +1,15 @@
 # QuickScene — Changelog
 
+## [1.2.2] - 2026-11-13
+
+- Remember the relative click position per window when reopening with V.
+- Open synchronously without the previous positioning delay.
+- Compensate for scene-row changes in native popup positioning.
+- Pad display labels independently by column without renaming data-blocks.
+- Retain the confirmed layout and width settings.
+- Validate stale targets, prune closed-window memory, and refresh widths after creation.
+- Clean up callbacks, position memory and display caches on disable.
+
 ## [1.2.1] - 2026-11-12
 
 ### Improved

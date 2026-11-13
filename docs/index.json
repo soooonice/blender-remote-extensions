@@ -8,7 +8,7 @@
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "type": "add-on",
       "maintainer": "QuickScene",
       "license": [
@@ -19,9 +19,9 @@
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quickscene-1.2.1.zip",
-      "archive_size": 7303,
-      "archive_hash": "sha256:5c8de6197fe00c36ecd4de6cbe5872ddef56bce69023c4eca0eb4078c51b665e"
+      "archive_url": "./quickscene-1.2.2.zip",
+      "archive_size": 9064,
+      "archive_hash": "sha256:acd3ae9cc1d8dea1fd3d9abac476aa9fe5c80d311b6a306923e2753c27492069"
     },
     {
       "schema_version": "1.0.0",

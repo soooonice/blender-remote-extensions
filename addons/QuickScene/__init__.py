@@ -1,4 +1,5 @@
-# QuickScene 1.2.1 — SPDX-License-Identifier: GPL-3.0-or-later
+# QuickScene 1.2.2 — SPDX-License-Identifier: GPL-3.0-or-later
+# Position memory and display-only name padding.
 # Press V in a Blender editor to open the scene/view-layer browser.
 import bpy
 import blf
@@ -20,6 +21,28 @@ POPUP_WIDTHS = (LEFT_WIDTH, RIGHT_WIDTH)
 DIALOG_WIDTH = 200
 NEW_MENU_WIDTH = 120
 PENDING_TIMERS = set()
+
+
+# Experimental cursor-anchor memory, per Blender window (session only).
+POSITION_MEMORY = {}
+OPEN_ANCHORS = {}
+
+def remember_click(context, event):
+    if event.type != 'LEFTMOUSE' or context.window is None:
+        return
+    key = context.window.as_pointer()
+    anchor = OPEN_ANCHORS.get(key)
+    if anchor is not None:
+        scale = max(context.preferences.system.ui_scale, 0.1)
+        POSITION_MEMORY[key] = ((event.mouse_x - anchor[0]) / scale,
+                                (event.mouse_y - anchor[1]) / scale)
+
+def prune_window_memory(context):
+    live = {window.as_pointer() for window in context.window_manager.windows}
+    for memory in (POSITION_MEMORY, OPEN_ANCHORS):
+        for key in tuple(memory):
+            if key not in live:
+                memory.pop(key, None)
 
 def prepare_widths(context):
     """Measure on opening and after confirmed renames, not on every draw."""
@@ -79,6 +102,27 @@ class QUICKSCENE_OT_select(bpy.types.Operator):
     bl_label = 'Switch Scene / View Layer'
     scene: StringProperty()
     layer: StringProperty()
+    def invoke(self, context, event):
+        target = bpy.data.scenes.get(self.scene)
+        if context.window is None or target is None or (self.layer and self.layer not in target.view_layers):
+            return {'CANCELLED'}
+        remember_click(context, event)
+        if not self.layer and event.type == 'LEFTMOUSE' and context.window:
+            # Native popover placement follows the first active (scene) row.
+            # Moving scene rows changes that baseline before our saved offset
+            # is applied. Compensate once, rather than applying the row travel twice.
+            scenes = sorted(bpy.data.scenes, key=lambda item: item.name.lower())
+            names = [scene.name for scene in scenes]
+            current = context.window.scene.name
+            if current in names and self.scene in names:
+                key = context.window.as_pointer()
+                if key in POSITION_MEMORY:
+                    dx, dy = POSITION_MEMORY[key]
+                    row_delta = names.index(self.scene) - names.index(current)
+                    # Native aligned button rows use one UI unit (20 px at scale 1).
+                    POSITION_MEMORY[key] = (dx, dy + row_delta * 20.0)
+        return self.execute(context)
+
     def execute(self, context):
         scene = bpy.data.scenes.get(self.scene)
         if scene is None or context.window is None:
@@ -86,7 +130,8 @@ class QUICKSCENE_OT_select(bpy.types.Operator):
         if self.layer and self.layer not in scene.view_layers:
             self.report({'WARNING'}, 'The view layer no longer exists')
             return {'CANCELLED'}
-        context.window.scene = scene
+        if context.window.scene != scene:
+            context.window.scene = scene
         if self.layer:
             context.window.view_layer = scene.view_layers[self.layer]
         redraw()
@@ -100,6 +145,7 @@ class QUICKSCENE_OT_edit(bpy.types.Operator):
     layer: StringProperty()
     name: StringProperty(name='Name')
     def invoke(self, context, event):
+        remember_click(context, event)
         self.name = self.layer or self.scene
         return context.window_manager.invoke_props_dialog(self, width=DIALOG_WIDTH)
     def draw(self, context):
@@ -109,7 +155,10 @@ class QUICKSCENE_OT_edit(bpy.types.Operator):
         target = scene.view_layers.get(self.layer) if scene and self.layer else scene
         if target is None or not self.name.strip():
             return {'CANCELLED'}
-        target.name = self.name.strip()
+        new_name = self.name.strip()
+        if target.name == new_name:
+            return {'FINISHED'}
+        target.name = new_name
         # Update the existing popup's layout before Blender redraws it after
         # dismissing this child dialog. Do not open another popup at the mouse.
         prepare_widths(context)
@@ -125,6 +174,7 @@ class QUICKSCENE_OT_delete(bpy.types.Operator):
     scene: StringProperty()
     layer: StringProperty()
     def invoke(self, context, event):
+        remember_click(context, event)
         self._popup_context = (context.window, context.area)
         return context.window_manager.invoke_props_dialog(self, width=DIALOG_WIDTH)
     def cancel(self, context):
@@ -175,7 +225,8 @@ class QUICKSCENE_OT_new(bpy.types.Operator):
         if self.mode not in allowed or (self.layer and self.layer not in scene.view_layers):
             self.report({'WARNING'}, 'Invalid target or creation mode')
             return {'CANCELLED'}
-        context.window.scene = scene
+        if context.window.scene != scene:
+            context.window.scene = scene
         if self.layer:
             source = scene.view_layers.get(self.layer)
             if source is None:
@@ -185,6 +236,8 @@ class QUICKSCENE_OT_new(bpy.types.Operator):
                 result = bpy.ops.scene.view_layer_add(type=self.mode)
         else:
             result = bpy.ops.scene.new(type=self.mode)
+        if 'FINISHED' in result:
+            prepare_widths(context)
         redraw()
         return result
 
@@ -194,6 +247,7 @@ class QUICKSCENE_OT_new_menu(bpy.types.Operator):
     scene: StringProperty()
     layer: StringProperty()
     def invoke(self, context, event):
+        remember_click(context, event)
         scene_name, layer_name = self.scene, self.layer
         def draw_menu(menu, ctx):
             # Native popup menus close after executing a choice.
@@ -211,7 +265,40 @@ class QUICKSCENE_OT_new_menu(bpy.types.Operator):
     def execute(self, context):
         return {'FINISHED'}
 
-def draw_browser_item(context, layout, item, column_width):
+PAD_NAMES = True
+_PADDING_CACHE = {}
+
+def padded_names(context, items, column_width, column_key):
+    names = tuple(item.name for item in items)
+    scale = max(context.preferences.system.ui_scale, 0.1)
+    points = context.preferences.ui_styles[0].widget.points
+    signature = (names, column_width, scale, points, PAD_NAMES)
+    cached = _PADDING_CACHE.get(column_key)
+    if cached and cached[0] == signature:
+        return cached[1]
+    labels = dict.fromkeys(names)
+    if not PAD_NAMES:
+        labels = {name: name for name in names}
+    else:
+        blf.size(0, points * scale)
+        widths = {name: blf.dimensions(0, name)[0] for name in names}
+        # Do not widen the accepted layout just to accommodate padding.
+        available = max(0.0, (column_width - ACTION_WIDTH - BOX_PADDING - 1.2) * 20.0 * scale)
+        target = min(max(widths.values(), default=0.0), available)
+        space = max(blf.dimensions(0, ' ')[0], 0.01)
+        for name, width in widths.items():
+            count = max(0, min(512, int((target - width) / space)))
+            label = name + ' ' * count
+            # Account for font metrics and never introduce clipping with padding.
+            while count and blf.dimensions(0, label)[0] > target:
+                count -= 1
+                label = name + ' ' * count
+            labels[name] = label
+    _PADDING_CACHE[column_key] = (signature, labels)
+    return labels
+
+
+def draw_browser_item(context, layout, item, column_width, display_name):
     is_scene = isinstance(item, bpy.types.Scene)
     scene = item if is_scene else context.window.scene
     layer = '' if is_scene else item.name
@@ -223,7 +310,8 @@ def draw_browser_item(context, layout, item, column_width):
     row = layout.split(factor=1.0 - ACTION_WIDTH / inner_width, align=True)
     name_button = row.row(align=True)
     name_button.active_default = active
-    op = name_button.template_popup_confirm('quickscene.select', text=item.name, cancel_text='', cancel_default=True)
+    name_button.operator_context = 'INVOKE_DEFAULT'
+    op = name_button.template_popup_confirm('quickscene.select', text=display_name, cancel_text='', cancel_default=True)
     op.scene, op.layer = scene.name, layer
     actions = row.row(align=True)
     actions.ui_units_x = ACTION_WIDTH
@@ -265,10 +353,11 @@ class QUICKSCENE_PT_browser(bpy.types.Panel):
         left, right = left_box.column(align=True), right_box.column(align=True)
         row_count = max(1, len(bpy.data.scenes), len(scene.view_layers))
         # Use Blender's own alphabetical-order helper, with no UIList footer.
-        for column, items, width in ((left, bpy.data.scenes, left_width),
-                                     (right, scene.view_layers, right_width)):
+        for column, items, width, cache_key in ((left, bpy.data.scenes, left_width, 'scenes'),
+                                                (right, scene.view_layers, right_width, 'layers')):
+            labels = padded_names(context, items, width, cache_key)
             for item in sorted(items, key=lambda item: item.name.lower()):
-                draw_browser_item(context, column, item, width)
+                draw_browser_item(context, column, item, width, labels[item.name])
             for _ in range(row_count - len(items)):
                 column.row().label(text='')
 
@@ -283,13 +372,31 @@ class QUICKSCENE_OT_open(bpy.types.Operator):
 
     def invoke(self, context, event):
         prepare_widths(context)
-        return bpy.ops.wm.call_panel('INVOKE_DEFAULT',
-                                     name='QUICKSCENE_PT_browser', keep_open=True)
+        prune_window_memory(context)
+        window = context.window
+        key = window.as_pointer()
+        original = (event.mouse_x, event.mouse_y)
+        scale = max(context.preferences.system.ui_scale, 0.1)
+        delta = POSITION_MEMORY.get(key, (0.0, 0.0))
+        anchor = (max(1, min(window.width - 2, round(original[0] - delta[0] * scale))),
+                  max(1, min(window.height - 2, round(original[1] - delta[1] * scale))))
+        OPEN_ANCHORS[key] = anchor
+        if anchor == original:
+            return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='QUICKSCENE_PT_browser', keep_open=True)
+        # cursor_warp updates Blender's eventstate synchronously.
+        # Construct the popup at the shifted anchor and restore the pointer
+        # within this invocation; no timer or intermediate redraw is needed.
+        try:
+            window.cursor_warp(*anchor)
+            return bpy.ops.wm.call_panel('INVOKE_DEFAULT',
+                                         name='QUICKSCENE_PT_browser', keep_open=True)
+        finally:
+            window.cursor_warp(*original)
 
     def execute(self, context):
         prepare_widths(context)
-        return bpy.ops.wm.call_panel('INVOKE_DEFAULT',
-                                     name='QUICKSCENE_PT_browser', keep_open=True)
+        OPEN_ANCHORS.pop(context.window.as_pointer(), None)
+        return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='QUICKSCENE_PT_browser', keep_open=True)
 
 
 CLASSES = (QUICKSCENE_OT_select, QUICKSCENE_OT_edit, QUICKSCENE_OT_delete, QUICKSCENE_OT_new,
@@ -309,6 +416,9 @@ def remove_keymaps():
 
 
 def unregister():
+    _PADDING_CACHE.clear()
+    POSITION_MEMORY.clear()
+    OPEN_ANCHORS.clear()
     for callback in tuple(PENDING_TIMERS):
         if bpy.app.timers.is_registered(callback):
             bpy.app.timers.unregister(callback)
