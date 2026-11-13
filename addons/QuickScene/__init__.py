@@ -1,5 +1,5 @@
-# QuickScene 1.2.2 — SPDX-License-Identifier: GPL-3.0-or-later
-# Position memory and display-only name padding.
+# QuickScene 1.2.4 — SPDX-License-Identifier: GPL-3.0-or-later
+# Scene and view-layer browser with linked-object single-user actions.
 # Press V in a Blender editor to open the scene/view-layer browser.
 import bpy
 import blf
@@ -21,6 +21,8 @@ POPUP_WIDTHS = (LEFT_WIDTH, RIGHT_WIDTH)
 DIALOG_WIDTH = 200
 NEW_MENU_WIDTH = 120
 PENDING_TIMERS = set()
+_POPUP_REGIONS = {}
+_REFRESH_QUEUED = False
 
 
 # Experimental cursor-anchor memory, per Blender window (session only).
@@ -68,12 +70,42 @@ def prepare_widths(context):
         )
     else:
         POPUP_WIDTHS = (LEFT_WIDTH, RIGHT_WIDTH)
-    QUICKSCENE_PT_browser.bl_ui_units_x = math.ceil(sum(POPUP_WIDTHS))
+    QUICKSCENE_PT_browser.bl_ui_units_x = math.ceil(sum(POPUP_WIDTHS) + (LINK_BUTTON_WIDTH if selected_active(context) else 0))
+
+def refresh_popup_regions():
+    # The native popup is a temporary region, outside screen.areas.
+    for key, region in tuple(_POPUP_REGIONS.items()):
+        if key not in _POPUP_WATCH:
+            _POPUP_REGIONS.pop(key, None)
+            continue
+        try:
+            region.tag_refresh_ui()
+            region.tag_redraw()
+        except (ReferenceError, RuntimeError):
+            _POPUP_REGIONS.pop(key, None)
+
 
 def redraw():
+    global _REFRESH_QUEUED
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             area.tag_redraw()
+    refresh_popup_regions()
+    # A one-shot follow-up runs after undo / child-menu completion has settled.
+    # Multiple updates in the same event are coalesced, not continuously polled.
+    if not bpy.app.background and _POPUP_REGIONS and not _REFRESH_QUEUED:
+        _REFRESH_QUEUED = True
+        def refresh_after_operation():
+            global _REFRESH_QUEUED
+            try:
+                _PADDING_CACHE.clear()
+                refresh_popup_regions()
+            finally:
+                _REFRESH_QUEUED = False
+                PENDING_TIMERS.discard(refresh_after_operation)
+            return None
+        PENDING_TIMERS.add(refresh_after_operation)
+        bpy.app.timers.register(refresh_after_operation, first_interval=0.0)
 
 def reopen_browser(window, area):
     """Recreate popup after the confirmation dialog has finished closing."""
@@ -124,6 +156,7 @@ class QUICKSCENE_OT_select(bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
+        stop_popup_watch(context)
         scene = bpy.data.scenes.get(self.scene)
         if scene is None or context.window is None:
             return {'CANCELLED'}
@@ -175,6 +208,7 @@ class QUICKSCENE_OT_delete(bpy.types.Operator):
     layer: StringProperty()
     def invoke(self, context, event):
         remember_click(context, event)
+        stop_popup_watch(context)
         self._popup_context = (context.window, context.area)
         return context.window_manager.invoke_props_dialog(self, width=DIALOG_WIDTH)
     def cancel(self, context):
@@ -265,6 +299,206 @@ class QUICKSCENE_OT_new_menu(bpy.types.Operator):
     def execute(self, context):
         return {'FINISHED'}
 
+
+LINK_BUTTON_WIDTH = 1.2
+
+def selected_active(context):
+    vl = context.view_layer
+    obj = vl.objects.active if vl else None
+    return obj if obj and obj.select_get(view_layer=vl) else None
+
+def scene_collections(scene):
+    found = {}
+    def walk(col):
+        if col.as_pointer() in found:
+            return
+        found[col.as_pointer()] = col
+        for child in col.children:
+            walk(child)
+    walk(scene.collection)
+    return tuple(found.values())
+
+def layer_settings(scene):
+    records = []
+    flags = ('exclude', 'hide_viewport', 'holdout', 'indirect_only')
+    def walk(vl, lc, path):
+        path = path + (lc.collection.as_pointer(),)
+        records.append((vl.name, path, {key: getattr(lc, key) for key in flags}))
+        for child in lc.children:
+            walk(vl, child, path)
+    for vl in scene.view_layers:
+        vl.update()
+        walk(vl, vl.layer_collection, ())
+    return records
+
+def restore_layer_settings(scene, records, replacements):
+    remap = {key: value.as_pointer() for key, value in replacements.items()}
+    wanted = {(name, tuple(remap.get(key, key) for key in path)): flags
+              for name, path, flags in records}
+    def walk(vl, lc, path):
+        path = path + (lc.collection.as_pointer(),)
+        flags = wanted.get((vl.name, path))
+        if flags:
+            for key, value in flags.items():
+                setattr(lc, key, value)
+        for child in lc.children:
+            walk(vl, child, path)
+    for vl in scene.view_layers:
+        vl.update()
+        walk(vl, vl.layer_collection, ())
+
+def make_scene_single_user(scene, obj, mode):
+    if mode not in {'OBJECT', 'DATA', 'MATERIALS'}:
+        raise ValueError('Invalid mode')
+    if scene.library or scene.override_library:
+        raise ValueError('Target scene must be local and editable')
+    if scene.objects.get(obj.name) != obj:
+        raise ValueError('The object is no longer linked to this scene')
+    if obj.override_library:
+        raise ValueError('Library override objects are not supported in this test')
+    shared_object = obj.library is not None or any(other != scene for other in obj.users_scene)
+    records = layer_settings(scene)
+    created, rollback, memo = [], [], {}
+    foreign = {c.as_pointer() for other in bpy.data.scenes if other != scene
+               for c in scene_collections(other)} if shared_object else set()
+    def link(collection, item):
+        collection.link(item)
+        rollback.append(lambda: collection.unlink(item))
+    def unlink(collection, item):
+        collection.unlink(item)
+        rollback.append(lambda: collection.link(item))
+    def isolate(col, inherited=False):
+        if col.all_objects.get(obj.name) != obj:
+            return col
+        key = col.as_pointer()
+        if key in memo:
+            return memo[key]
+        shared = inherited or key in foreign or col.library is not None or col.users > 1
+        result = col.copy() if shared else col
+        if result != col:
+            created.append(result)
+        memo[key] = result
+        for child in tuple(result.children):
+            replacement = isolate(child, shared)
+            if replacement != child:
+                link(result.children, replacement)
+                unlink(result.children, child)
+        return result
+    clone = obj
+    try:
+        if shared_object:
+            clone = obj.copy()
+            created.append(clone)
+        if mode in {'DATA', 'MATERIALS'} and clone.data is not None:
+            original_data = clone.data
+            if original_data.users > 1 or original_data.library:
+                copied = original_data.copy()
+                created.append(copied)
+                rollback.append(lambda: setattr(clone, 'data', original_data))
+                clone.data = copied
+        if mode == 'MATERIALS':
+            materials = {}
+            for index, slot in enumerate(clone.material_slots):
+                material = slot.material
+                if material and (material.users > 1 or material.library):
+                    key = material.as_pointer()
+                    if key not in materials:
+                        materials[key] = material.copy()
+                        created.append(materials[key])
+                    rollback.append(lambda i=index, m=material: setattr(clone.material_slots[i], 'material', m))
+                    slot.material = materials[key]
+        if shared_object:
+            for child in tuple(scene.collection.children):
+                replacement = isolate(child)
+                if replacement != child:
+                    link(scene.collection.children, replacement)
+                    unlink(scene.collection.children, child)
+            owners = [col for col in scene_collections(scene) if col.objects.get(obj.name) == obj]
+            for col in owners:
+                link(col.objects, clone)
+            for col in owners:
+                unlink(col.objects, obj)
+            restore_layer_settings(scene, records, memo)
+        return clone
+    except Exception:
+        # Reverse all membership/data changes before removing newly created IDs.
+        errors = []
+        for undo in reversed(rollback):
+            try:
+                undo()
+            except Exception as error:
+                errors.append(str(error))
+        if not errors and created:
+            bpy.data.batch_remove(ids=created)
+        try:
+            restore_layer_settings(scene, records, {})
+        except Exception as error:
+            errors.append(str(error))
+        if errors:
+            raise RuntimeError('Rollback incomplete: ' + '; '.join(errors))
+        raise
+
+class QUICKSCENE_OT_single_user(bpy.types.Operator):
+    bl_idname = 'quickscene.single_user'
+    bl_label = 'Make Single User'
+    bl_options = {'UNDO'}
+    scene: StringProperty()
+    object_name: StringProperty()
+    object_uid: StringProperty()
+    mode: StringProperty(default='OBJECT')
+
+    def execute(self, context):
+        _CHILD_MENU.discard(context.window.as_pointer())
+        scene = bpy.data.scenes.get(self.scene)
+        obj = bpy.data.objects.get(self.object_name)
+        if scene is None or obj is None or str(obj.session_uid) != self.object_uid:
+            self.report({'WARNING'}, 'The source object or scene has changed')
+            return {'CANCELLED'}
+        # Preserve the active/selected state when separating the current scene.
+        states = []
+        for vl in scene.view_layers:
+            if vl.objects.get(obj.name) == obj:
+                states.append((vl, vl.objects.active == obj, obj.select_get(view_layer=vl)))
+        try:
+            clone = make_scene_single_user(scene, obj, self.mode)
+        except (RuntimeError, ValueError, TypeError) as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+        for vl, active, selected in states:
+            vl.update()
+            if vl.objects.get(clone.name) == clone:
+                clone.select_set(selected, view_layer=vl)
+                if active:
+                    vl.objects.active = clone
+        prepare_widths(context)
+        if context.region:
+            context.region.tag_redraw()
+        redraw()
+        return {'FINISHED'}
+
+class QUICKSCENE_OT_single_menu(bpy.types.Operator):
+    bl_idname = 'quickscene.single_menu'
+    bl_label = 'Make Single User'
+    bl_description = 'Make the selected active object single-user in this scene only'
+    scene: StringProperty()
+    object_name: StringProperty()
+    object_uid: StringProperty()
+
+    def invoke(self, context, event):
+        if context.region_popup is not None:
+            _POPUP_REGIONS[context.window.as_pointer()] = context.region_popup
+        _CHILD_MENU.add(context.window.as_pointer())
+        remember_click(context, event)
+        scene_name, name, uid = self.scene, self.object_name, self.object_uid
+        def draw_menu(menu, ctx):
+            menu.layout.ui_units_x = 10
+            for mode, label in (('OBJECT','Object'), ('DATA','Object&Data'),
+                                ('MATERIALS','Object&Data&Materials')):
+                op = menu.layout.operator('quickscene.single_user', text=label)
+                op.scene, op.object_name, op.object_uid, op.mode = scene_name, name, uid, mode
+        context.window_manager.popup_menu(draw_menu, title='Make Single User')
+        return {'FINISHED'}
+
 PAD_NAMES = True
 _PADDING_CACHE = {}
 
@@ -298,7 +532,7 @@ def padded_names(context, items, column_width, column_key):
     return labels
 
 
-def draw_browser_item(context, layout, item, column_width, display_name):
+def draw_browser_item(context, layout, item, column_width, display_name, link_object=None):
     is_scene = isinstance(item, bpy.types.Scene)
     scene = item if is_scene else context.window.scene
     layer = '' if is_scene else item.name
@@ -306,15 +540,16 @@ def draw_browser_item(context, layout, item, column_width, display_name):
     # Fixed cells prevent per-name text measurements from changing the
     # minimum width of a column when the filtered item set changes.
     # The split operates inside the box: exclude its horizontal padding.
-    inner_width = max(column_width - BOX_PADDING, ACTION_WIDTH + 1.0)
-    row = layout.split(factor=1.0 - ACTION_WIDTH / inner_width, align=True)
+    action_width = ACTION_WIDTH + (LINK_BUTTON_WIDTH if is_scene and link_object else 0.0)
+    inner_width = max(column_width - BOX_PADDING, action_width + 1.0)
+    row = layout.split(factor=1.0 - action_width / inner_width, align=True)
     name_button = row.row(align=True)
     name_button.active_default = active
     name_button.operator_context = 'INVOKE_DEFAULT'
     op = name_button.template_popup_confirm('quickscene.select', text=display_name, cancel_text='', cancel_default=True)
     op.scene, op.layer = scene.name, layer
     actions = row.row(align=True)
-    actions.ui_units_x = ACTION_WIDTH
+    actions.ui_units_x = action_width
     for identifier, icon_name in [('quickscene.edit', 'BACK'), ('quickscene.new_menu', 'ADD'), ('quickscene.delete', 'REMOVE')]:
         button = actions.row(align=True)
         button.ui_units_x = ACTION_BUTTON_WIDTH
@@ -327,6 +562,134 @@ def draw_browser_item(context, layout, item, column_width, display_name):
         else:
             op = button.operator(identifier, text='', icon=icon_name)
         op.scene, op.layer = scene.name, layer
+    if is_scene and link_object:
+        button = actions.row(align=True)
+        button.ui_units_x = LINK_BUTTON_WIDTH
+        button.enabled = scene.objects.get(link_object.name) == link_object
+        button.operator_context = 'INVOKE_DEFAULT'
+        op = button.operator('quickscene.single_menu', text='', icon='LINKED')
+        op.scene, op.object_name, op.object_uid = scene.name, link_object.name, str(link_object.session_uid)
+
+
+
+def undo_context(context):
+    area = context.area
+    if area is None:
+        return None
+    return next((region for region in area.regions if region.type == 'WINDOW'), None)
+
+class QUICKSCENE_OT_popup_undo(bpy.types.Operator):
+    bl_idname = 'quickscene.popup_undo'
+    bl_label = 'Undo Last Operation'
+    bl_description = 'Undo the latest Blender operation and refresh this popup'
+    # Deliberately no UNDO flag: undo itself must not create another undo step.
+
+    @classmethod
+    def poll(cls, context):
+        if context.window is None or undo_context(context) is None:
+            return False
+        with context.temp_override(region=undo_context(context)):
+            return bpy.ops.ed.undo.poll()
+
+    def execute(self, context):
+        # Preserve only window/area references across undo, never scene/object IDs.
+        window, area = context.window, context.area
+        region = undo_context(context)
+        if window is None or area is None or region is None:
+            return {'CANCELLED'}
+        with context.temp_override(window=window, area=area, region=region):
+            if not bpy.ops.ed.undo.poll():
+                return {'CANCELLED'}
+            result = bpy.ops.ed.undo()
+        if 'FINISHED' in result:
+            _PADDING_CACHE.clear()
+            # Reacquire all scene and layer data after Blender's undo rebuild.
+            with context.temp_override(window=window, area=area, region=region):
+                prepare_widths(bpy.context)
+            redraw()
+        return result
+
+
+_WATCH_TIMERS = {}
+_CHILD_MENU = set()
+_POPUP_WATCH = {}
+_POPUP_BOUNDS = {}
+
+def stop_popup_watch(context):
+    if context.window:
+        key = context.window.as_pointer()
+        _POPUP_WATCH.pop(key, None)
+        _POPUP_REGIONS.pop(key, None)
+        _POPUP_BOUNDS.pop(key, None)
+        _CHILD_MENU.discard(key)
+
+class QUICKSCENE_OT_undo_watch(bpy.types.Operator):
+    bl_idname = 'quickscene.undo_watch'
+    bl_label = 'QuickScene Popup Keyboard'
+    bl_options = {'INTERNAL'}
+
+    def invoke(self, context, event):
+        self._key = context.window.as_pointer()
+        self._token = object()
+        _POPUP_WATCH[self._key] = self._token
+        self._area = context.area
+        self._timer = context.window_manager.event_timer_add(0.25, window=context.window)
+        _WATCH_TIMERS[self._token] = self._timer
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def finish(self, context):
+        timer = _WATCH_TIMERS.pop(self._token, None)
+        if timer is not None:
+            context.window_manager.event_timer_remove(timer)
+        self._timer = None
+        if _POPUP_WATCH.get(self._key) is self._token:
+            _POPUP_WATCH.pop(self._key, None)
+            _POPUP_REGIONS.pop(self._key, None)
+            _POPUP_BOUNDS.pop(self._key, None)
+            _CHILD_MENU.discard(self._key)
+        return {'FINISHED'}
+
+    def modal(self, context, event):
+        if _POPUP_WATCH.get(self._key) is not self._token:
+            return self.finish(context)
+        if event.type in {'ESC', 'RIGHTMOUSE'} and self._key in _CHILD_MENU:
+            _CHILD_MENU.discard(self._key)
+            return {'PASS_THROUGH'}
+        if event.type in {'ESC', 'RIGHTMOUSE', 'WINDOW_DEACTIVATE'}:
+            self.finish(context)
+            return {'FINISHED', 'PASS_THROUGH'}
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            bounds = _POPUP_BOUNDS.get(self._key)
+            if bounds and bounds[0] <= event.mouse_x <= bounds[2] and bounds[1] <= event.mouse_y <= bounds[3]:
+                _CHILD_MENU.discard(self._key)
+            if self._key not in _CHILD_MENU and bounds and not (bounds[0] <= event.mouse_x <= bounds[2] and
+                               bounds[1] <= event.mouse_y <= bounds[3]):
+                # Do not capture editor shortcuts after an outside click closes the popup.
+                self.finish(context)
+                return {'FINISHED', 'PASS_THROUGH'}
+        if event.type == 'Z' and event.ctrl and not event.shift and not event.alt:
+            if event.value == 'PRESS':
+                try:
+                    with context.temp_override(area=self._area):
+                        if bpy.ops.quickscene.popup_undo.poll():
+                            bpy.ops.quickscene.popup_undo()
+                except (ReferenceError, RuntimeError):
+                    self.finish(context)
+                    return {'FINISHED'}
+            return {'RUNNING_MODAL'}
+        return {'PASS_THROUGH'}
+
+    def cancel(self, context):
+        self.finish(context)
+
+
+def open_with_keyboard(context):
+    result = bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='QUICKSCENE_PT_browser', keep_open=True)
+    if 'INTERFACE' in result:
+        # Install after the native popup so Ctrl+Z is seen before its event handler.
+        bpy.ops.quickscene.undo_watch('INVOKE_DEFAULT')
+    return result
 
 class QUICKSCENE_PT_browser(bpy.types.Panel):
     bl_label = 'Scenes & View Layers'
@@ -341,7 +704,17 @@ class QUICKSCENE_PT_browser(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        popup_region = context.region_popup
+        if popup_region is not None and context.window:
+            key = context.window.as_pointer()
+            _POPUP_REGIONS[key] = popup_region
+            _POPUP_BOUNDS[key] = (popup_region.x, popup_region.y,
+                                  popup_region.x + popup_region.width,
+                                  popup_region.y + popup_region.height)
+        link_object = selected_active(context)
         left_width, right_width = POPUP_WIDTHS
+        if link_object:
+            left_width += LINK_BUTTON_WIDTH
         total_width = left_width + right_width
         layout.ui_units_x = total_width
         scene = context.window.scene
@@ -355,9 +728,9 @@ class QUICKSCENE_PT_browser(bpy.types.Panel):
         # Use Blender's own alphabetical-order helper, with no UIList footer.
         for column, items, width, cache_key in ((left, bpy.data.scenes, left_width, 'scenes'),
                                                 (right, scene.view_layers, right_width, 'layers')):
-            labels = padded_names(context, items, width, cache_key)
+            labels = padded_names(context, items, width - (LINK_BUTTON_WIDTH if cache_key == 'scenes' and link_object else 0), cache_key)
             for item in sorted(items, key=lambda item: item.name.lower()):
-                draw_browser_item(context, column, item, width, labels[item.name])
+                draw_browser_item(context, column, item, width, labels[item.name], link_object)
             for _ in range(row_count - len(items)):
                 column.row().label(text='')
 
@@ -382,25 +755,55 @@ class QUICKSCENE_OT_open(bpy.types.Operator):
                   max(1, min(window.height - 2, round(original[1] - delta[1] * scale))))
         OPEN_ANCHORS[key] = anchor
         if anchor == original:
-            return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='QUICKSCENE_PT_browser', keep_open=True)
+            return open_with_keyboard(context)
         # cursor_warp updates Blender's eventstate synchronously.
         # Construct the popup at the shifted anchor and restore the pointer
         # within this invocation; no timer or intermediate redraw is needed.
         try:
             window.cursor_warp(*anchor)
-            return bpy.ops.wm.call_panel('INVOKE_DEFAULT',
-                                         name='QUICKSCENE_PT_browser', keep_open=True)
+            return open_with_keyboard(context)
         finally:
             window.cursor_warp(*original)
 
     def execute(self, context):
         prepare_widths(context)
         OPEN_ANCHORS.pop(context.window.as_pointer(), None)
-        return bpy.ops.wm.call_panel('INVOKE_DEFAULT', name='QUICKSCENE_PT_browser', keep_open=True)
+        return open_with_keyboard(context)
 
 
-CLASSES = (QUICKSCENE_OT_select, QUICKSCENE_OT_edit, QUICKSCENE_OT_delete, QUICKSCENE_OT_new,
-           QUICKSCENE_OT_new_menu, QUICKSCENE_PT_browser, QUICKSCENE_OT_open)
+
+class QUICKSCENE_AP_preferences(bpy.types.AddonPreferences):
+    bl_idname = __package__ or __name__
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text='QuickScene 1.2.4')
+        box = layout.box()
+        box.label(text='功能说明')
+        col = box.column(align=True)
+        col.label(text='快速切换场景和视图层；两列分别自适应名称宽度。')
+        col.label(text='支持重命名、新建、删除，以及菜单位置记忆。')
+        col.label(text='选中活动对象时显示 Link 按钮，标识使用同一对象的场景。')
+        col.label(text='Link 菜单可将目标场景中的对象、数据、材质设为单用户。')
+        box = layout.box()
+        box.label(text='使用方法')
+        col = box.column(align=True)
+        col.label(text='1. 鼠标移到编辑区域，按 V 打开菜单。')
+        col.label(text='2. 点击名称切换；右侧按钮依次为重命名、新建、删除。')
+        col.label(text='3. 选中活动对象，点击目标场景右侧可用的 Link 按钮。')
+        col.label(text='4. 选择 Object / Object&Data / Object&Data&Materials。')
+        col.label(text='5. 菜单内按 Ctrl+Z 撤销最近一步操作，列表自动刷新。')
+        box = layout.box()
+        box.label(text='使用提示')
+        col = box.column(align=True)
+        col.label(text='未选中活动对象时不显示 Link 按钮；多选时仅判断活动对象。')
+        col.label(text='Link 表示同一个对象，不包括仅共用网格的不同对象。')
+        col.label(text='单用户分离仅针对目标场景；库覆盖对象暂不支持。')
+        col.label(text='快捷键可能与其他操作冲突，可在偏好设置的键位映射中调整。')
+        layout.operator("wm.url_open", text="项目说明 / 更新记录", icon="URL").url = 'https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickScene'
+
+CLASSES = (QUICKSCENE_AP_preferences, QUICKSCENE_OT_select, QUICKSCENE_OT_edit, QUICKSCENE_OT_delete, QUICKSCENE_OT_new,
+           QUICKSCENE_OT_new_menu, QUICKSCENE_OT_single_user, QUICKSCENE_OT_single_menu, QUICKSCENE_OT_popup_undo, QUICKSCENE_OT_undo_watch, QUICKSCENE_PT_browser, QUICKSCENE_OT_open)
 
 def remove_keymaps():
     # Resolve fresh RNA objects: stored keymap handles can become invalid.
@@ -416,6 +819,15 @@ def remove_keymaps():
 
 
 def unregister():
+    for timer in tuple(_WATCH_TIMERS.values()):
+        bpy.context.window_manager.event_timer_remove(timer)
+    _WATCH_TIMERS.clear()
+    global _REFRESH_QUEUED
+    _REFRESH_QUEUED = False
+    _POPUP_REGIONS.clear()
+    _CHILD_MENU.clear()
+    _POPUP_WATCH.clear()
+    _POPUP_BOUNDS.clear()
     _PADDING_CACHE.clear()
     POSITION_MEMORY.clear()
     OPEN_ANCHORS.clear()

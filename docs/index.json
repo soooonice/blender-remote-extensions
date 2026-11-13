@@ -8,7 +8,7 @@
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",
-      "version": "1.2.2",
+      "version": "1.2.4",
       "type": "add-on",
       "maintainer": "QuickScene",
       "license": [
@@ -19,16 +19,16 @@
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quickscene-1.2.2.zip",
-      "archive_size": 9064,
-      "archive_hash": "sha256:acd3ae9cc1d8dea1fd3d9abac476aa9fe5c80d311b6a306923e2753c27492069"
+      "archive_url": "./quickscene-1.2.4.zip",
+      "archive_size": 14112,
+      "archive_hash": "sha256:c7f6e665fc14f2ca9d605dbcf75619a38cacdf3ff974cbc6c81b433e7db7025f"
     },
     {
-      "schema_version": "1.0.0",
+      "schema_version": "1.0.1",
       "id": "quick_remap_users",
       "name": "QuickRemapUsers",
       "tagline": "Batch remap selected data-block users",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "type": "add-on",
       "maintainer": "QuickScene",
       "license": [
@@ -39,9 +39,9 @@
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quick_remap_users-1.0.0.zip",
-      "archive_size": 4047,
-      "archive_hash": "sha256:9f67efb99485bd931d24afb7a66fa79fa084543ac2408c17a7a96b90f03e38bd"
+      "archive_url": "./quick_remap_users-1.0.1.zip",
+      "archive_size": 4868,
+      "archive_hash": "sha256:4f319f321c86c3f901c348f50204be8e3f27c32f1c84f3fb702ecc116e92622c"
     }
   ]
 }

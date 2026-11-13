@@ -297,7 +297,37 @@ class OUTLINER_OT_quick_batch_remap(bpy.types.Operator):
 # Registration
 # ============================================================
 
+
+class QUICKREMAPUSERS_AP_preferences(bpy.types.AddonPreferences):
+    bl_idname = __package__ or __name__
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text='QuickRemapUsers 1.0.1')
+        box = layout.box()
+        box.label(text='功能说明')
+        col = box.column(align=True)
+        col.label(text='将选中的多个同类型数据块的使用者，统一重映射到一个目标。')
+        col.label(text='支持从当前文件中选择同类型目标；不会自动删除源数据块。')
+        box = layout.box()
+        box.label(text='使用方法')
+        col = box.column(align=True)
+        col.label(text='1. 将 Outliner（大纲视图）的显示模式切换为 Blender File。')
+        col.label(text='2. 选择一个或多个同类型数据块，鼠标留在 Outliner 中。')
+        col.label(text='3. 按 R 打开 Remap Users。')
+        col.label(text='4. 在 Remap To 中选择目标，点击 Remap 执行。')
+        col.label(text='5. 按 Ctrl+Z 撤销。')
+        box = layout.box()
+        box.label(text='使用提示')
+        col = box.column(align=True)
+        col.label(text='源数据块必须属于同一类型；目标本身被选中时会自动跳过。')
+        col.label(text='重映射影响整个文件内对源数据块的引用，不限于当前场景。')
+        col.label(text='执行前请确认目标；此工具不同于仅替换选中对象的材质槽。')
+        layout.operator("wm.url_open", text="项目说明 / 更新记录", icon="URL").url = 'https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickRemapUsers'
+
 def unregister():
+    if QUICKREMAPUSERS_AP_preferences.is_registered:
+        bpy.utils.unregister_class(QUICKREMAPUSERS_AP_preferences)
     clear_session()
     wm = bpy.context.window_manager
 
@@ -320,6 +350,7 @@ def unregister():
 
 def register():
     unregister()
+    bpy.utils.register_class(QUICKREMAPUSERS_AP_preferences)
 
     bpy.utils.register_class(
         OUTLINER_OT_quick_batch_remap

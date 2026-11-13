@@ -1,5 +1,18 @@
 # QuickScene — Changelog
 
+## [1.2.4] - 2026-11-13
+
+- 添加插件说明
+
+## [1.2.3] - 2026-11-13
+
+- Show per-scene Link actions for the selected active object; unrelated scenes are disabled.
+- Add Object / Object&Data / Object&Data&Materials single-user options.
+- Isolate shared collection branches in the target scene and preserve layer-collection settings.
+- Roll back failed changes and avoid copying already independent data.
+- Support Ctrl+Z inside the popup and refresh native popup button states immediately.
+- Clean up keyboard watchers, timers and popup references on disable.
+
 ## [1.2.2] - 2026-11-13
 
 - Remember the relative click position per window when reopening with V.

@@ -1,7 +1,7 @@
-schema_version = "1.0.0"
+schema_version = "1.0.1"
 
 id = "quick_remap_users"
-version = "1.0.0"
+version = "1.0.1"
 name = "QuickRemapUsers"
 tagline = "Batch remap selected data-block users"
 maintainer = "QuickScene"
