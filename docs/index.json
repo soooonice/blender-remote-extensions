@@ -5,6 +5,29 @@
   "data": [
     {
       "schema_version": "1.0.0",
+      "id": "blendcompact",
+      "name": "BlendCompact",
+      "tagline": "Save verified, compact copies of Blender projects",
+      "version": "1.0.0",
+      "type": "add-on",
+      "maintainer": "QuickScene",
+      "license": [
+        "SPDX:GPL-3.0-or-later"
+      ],
+      "blender_version_min": "5.3.0",
+      "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/BlendCompact",
+      "permissions": {
+        "files": "Read the saved project and write a verified copy beside it"
+      },
+      "tags": [
+        "System"
+      ],
+      "archive_url": "./blendcompact-1.0.0.zip",
+      "archive_size": 5410,
+      "archive_hash": "sha256:9c1247f9abbbf75f3760473bce3a23a359862be89c2035b357289ce1c513d0a7"
+    },
+    {
+      "schema_version": "1.0.0",
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",
