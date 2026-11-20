@@ -22,8 +22,15 @@ def _check_job():
     title = "BlendCompact · 副本已保存" if ok else "BlendCompact · 压缩失败"
 
     def draw(menu, context):
-        for line in lines or ["后台任务未返回结果"]:
-            menu.layout.label(text=line)
+        if ok and len(lines) == 2:
+            output = Path(lines[1])
+            menu.layout.label(text=lines[0])
+            menu.layout.label(text=output.name)
+            button = menu.layout.operator("wm.path_open", text=str(output.parent), icon='FILE_FOLDER')
+            button.filepath = str(output.parent)
+        else:
+            for line in lines or ["后台任务未返回结果"]:
+                menu.layout.label(text=line)
 
     if not bpy.app.background:
         bpy.context.window_manager.popup_menu(draw, title=title, icon='CHECKMARK' if ok else 'ERROR')

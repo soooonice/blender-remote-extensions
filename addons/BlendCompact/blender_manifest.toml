@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 id = "blendcompact"
-version = "1.0.0"
+version = "1.0.1"
 name = "BlendCompact"
 tagline = "Save verified, compact copies of Blender projects"
-maintainer = "QuickScene"
+maintainer = "nice"
 type = "add-on"
 tags = ["System"]
 website = "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/BlendCompact"

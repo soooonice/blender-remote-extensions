@@ -4,7 +4,7 @@ id = "quickscene"
 version = "1.2.4"
 name = "QuickScene"
 tagline = "Quick scene and view layer switching"
-maintainer = "QuickScene"
+maintainer = "nice"
 type = "add-on"
 
 tags = ["User Interface"]

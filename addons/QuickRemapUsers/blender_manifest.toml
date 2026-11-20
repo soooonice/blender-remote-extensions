@@ -4,7 +4,7 @@ id = "quick_remap_users"
 version = "1.0.1"
 name = "QuickRemapUsers"
 tagline = "Batch remap selected data-block users"
-maintainer = "QuickScene"
+maintainer = "nice"
 type = "add-on"
 
 tags = ["User Interface"]
