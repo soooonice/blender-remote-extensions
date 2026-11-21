@@ -1,13 +1,13 @@
 schema_version = "1.0.0"
 id = "blendcompact"
-version = "1.0.1"
+version = "1.0.2"
 name = "BlendCompact"
 tagline = "Save verified, compact copies of Blender projects"
 maintainer = "nice"
 type = "add-on"
 tags = ["System"]
 website = "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/BlendCompact"
-blender_version_min = "5.3.0"
+blender_version_min = "4.5.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
 [permissions]

@@ -8,13 +8,13 @@
       "id": "blendcompact",
       "name": "BlendCompact",
       "tagline": "Save verified, compact copies of Blender projects",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "type": "add-on",
       "maintainer": "nice",
       "license": [
         "SPDX:GPL-3.0-or-later"
       ],
-      "blender_version_min": "5.3.0",
+      "blender_version_min": "4.5.0",
       "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/BlendCompact",
       "permissions": {
         "files": "Read the saved project and write a verified copy beside it"
@@ -22,49 +22,49 @@
       "tags": [
         "System"
       ],
-      "archive_url": "./blendcompact-1.0.1.zip",
-      "archive_size": 5547,
-      "archive_hash": "sha256:95f1ded525eb498aea5c01ed58de571f60cbfb4da00a541b131e4a1a491bd7b6"
+      "archive_url": "./blendcompact-1.0.2.zip",
+      "archive_size": 5566,
+      "archive_hash": "sha256:d56312655c3f3c909585b453bab608b158656e83decf22b19b8c5c75745e035e"
     },
     {
       "schema_version": "1.0.0",
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",
-      "version": "1.2.4",
+      "version": "1.2.5",
       "type": "add-on",
       "maintainer": "nice",
       "license": [
         "SPDX:GPL-3.0-or-later"
       ],
-      "blender_version_min": "5.2.0",
+      "blender_version_min": "4.5.0",
       "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickScene",
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quickscene-1.2.4.zip",
-      "archive_size": 14113,
-      "archive_hash": "sha256:cf8f45411dcfd101ac3e68fcd2b9e033ab833a500d57c459c4c5dff578579b71"
+      "archive_url": "./quickscene-1.2.5.zip",
+      "archive_size": 14149,
+      "archive_hash": "sha256:9fb5731ba281f570b4396ded0c4fa069bc0acfebd67974f0b46712af734c5420"
     },
     {
-      "schema_version": "1.0.1",
+      "schema_version": "1.0.0",
       "id": "quick_remap_users",
       "name": "QuickRemapUsers",
       "tagline": "Batch remap selected data-block users",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "type": "add-on",
       "maintainer": "nice",
       "license": [
         "SPDX:GPL-3.0-or-later"
       ],
-      "blender_version_min": "5.2.0",
+      "blender_version_min": "4.5.0",
       "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickRemapUsers",
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./quick_remap_users-1.0.1.zip",
-      "archive_size": 4865,
-      "archive_hash": "sha256:2855258498b148f62b81235a767bdc81dd03f0ad03b5c007b4305be42291199f"
+      "archive_url": "./quick_remap_users-1.0.2.zip",
+      "archive_size": 4901,
+      "archive_hash": "sha256:823b165a6a01857526c11ff9608fed205281cf1e13a97d9433e5f75440d9b2f2"
     }
   ]
 }
