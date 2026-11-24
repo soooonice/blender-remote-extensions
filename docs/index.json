@@ -28,6 +28,26 @@
     },
     {
       "schema_version": "1.0.0",
+      "id": "content_browser",
+      "name": "QuickBrowser",
+      "tagline": "Browse scene data-blocks with previews and drag-and-drop",
+      "version": "1.0.1",
+      "type": "add-on",
+      "maintainer": "nice",
+      "license": [
+        "SPDX:GPL-3.0-or-later"
+      ],
+      "blender_version_min": "4.5.0",
+      "website": "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickBrowser",
+      "tags": [
+        "User Interface"
+      ],
+      "archive_url": "./content_browser-1.0.1.zip",
+      "archive_size": 48012,
+      "archive_hash": "sha256:aea0b21292a60036da45144c03fa0324ee77954cd5bd48a926b5644090594072"
+    },
+    {
+      "schema_version": "1.0.0",
       "id": "quickscene",
       "name": "QuickScene",
       "tagline": "Quick scene and view layer switching",

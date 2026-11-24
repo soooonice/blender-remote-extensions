@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "content_browser"
+version = "1.0.1"
+name = "QuickBrowser"
+tagline = "Browse scene data-blocks with previews and drag-and-drop"
+maintainer = "nice"
+type = "add-on"
+
+tags = ["User Interface"]
+
+website = "https://github.com/soooonice/blender-remote-extensions/tree/main/addons/QuickBrowser"
+
+blender_version_min = "4.5.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
