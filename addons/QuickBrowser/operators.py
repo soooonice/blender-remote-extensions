@@ -175,7 +175,7 @@ def open_item(context,v,uid):
     if state is None: return
     clicked=v.get('clicked_path',())
     owner=resolve(clicked[-2]) if len(clicked)>1 else current(v)
-    if isinstance(item,(bpy.types.GeometryNodeTree,bpy.types.ShaderNodeTree)) and (isinstance(item,bpy.types.ShaderNodeTree) or not group_folder(item,owner)):
+    if isinstance(item,(bpy.types.GeometryNodeTree,bpy.types.ShaderNodeTree)) and not group_folder(item,owner):
         show_shader(context,v,item,True)
         return
     if state.query.strip() and not v.get('pin_contents') and not v.get('browse_result') and item:
