@@ -43,12 +43,11 @@ def editor_window(context,v,kind,create):
         if area.ui_type!=wanted: return False
         space=area.spaces.active
         return not getattr(space,'pin',getattr(space,'use_image_pin',False))
-    candidates=[a for a in win.screen.areas if compatible(a) or
-                (a.ui_type==wanted and R.editor_returns.get(akey(win,a),())[:1]==(origin.as_pointer(),))]
+    candidates=[a for a in win.screen.areas if compatible(a) and akey(win,a) not in R.editor_returns]
     area=max(candidates,key=lambda a:a.width*a.height,default=origin)
-    key=akey(win,area)
-    R.editor_returns[key]=(origin.as_pointer(),v,wanted)
-    if area==origin: area.ui_type=wanted
+    if area==origin:
+        R.editor_returns[akey(win,area)]=(origin.as_pointer(),v,wanted)
+        area.ui_type=wanted
     return win,area
 
 
@@ -62,9 +61,6 @@ def return_to_browser(win,area):
         area.type='PROPERTIES'
         area.spaces.active.context='SCENE'
         R.views[akey(win,area)]=v
-    elif origin and R.views.get(akey(win,origin)) is v:
-        if area.type=='NODE_EDITOR': area.spaces.active.pin=False
-        win.cursor_warp(origin.x+origin.width//2,origin.y+origin.height//2)
     else: return False
     origin.tag_redraw()
     return True
@@ -93,7 +89,8 @@ def show_shader(context,v,mat,create):
     area.ui_type=tree.bl_idname
     space=area.spaces.active
     if kind=='shader': space.shader_type='OBJECT'
-    space.pin=True
+    temporary=akey(window,area) in R.editor_returns
+    if temporary: space.pin=True
     chain=[]
     if group:
         clicked=v.get('clicked_path',())
@@ -104,6 +101,22 @@ def show_shader(context,v,mat,create):
             if isinstance(candidate,type(tree)) and candidate!=tree:
                 chain.append(candidate)
     chain.append(tree)
+    if not temporary:
+        path=[resolve(uid) for uid in (*v['path'],*v.get('clicked_path',()))]
+        owners=[o for o in reversed(path) if isinstance(o,bpy.types.Object)]
+        root=chain[0]
+        for obj in (*owners,*window.view_layer.objects):
+            if window.view_layer.objects.get(obj.name)!=obj: continue
+            if kind=='shader':
+                slot=next((i for i,s in enumerate(obj.material_slots) if s.material and s.material.node_tree==root),None)
+                if slot is None: continue
+                obj.active_material_index=slot
+            else:
+                modifier=root_modifier(obj,root)
+                if not modifier: continue
+                obj.modifiers.active=modifier
+            window.view_layer.objects.active=obj
+            break
     space.path.start(chain[0])
     for parent,child in zip(chain,chain[1:]):
         node=next((n for n in parent.nodes if getattr(n,'node_tree',None)==child),None)

@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "content_browser"
-version = "1.0.3"
+version = "1.0.4"
 name = "QuickBrowser"
 tagline = "Browse scene data-blocks with previews and drag-and-drop"
 maintainer = "nice"
