@@ -75,6 +75,8 @@ def after_history(*args):
 
 @persistent
 def invalidate(*args):
+    R.material_states.clear()
+    R.material_jobs.clear()
     R.geometry_outputs.clear()
     R.object_axes.clear()
     R.slot_ids.clear()

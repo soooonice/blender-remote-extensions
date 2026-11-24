@@ -16,8 +16,72 @@ import math
 import time
 
 
+from .browser_data import socket_value
+
+R.material_states={}
+R.material_jobs=set()
+
+
+def material_state(mat):
+    tree=mat.node_tree
+    if not tree: return (tuple(mat.diffuse_color),mat.metallic,mat.roughness),set()
+    rows=[]
+    dependencies=set()
+    visited=set()
+    links={}
+    def walk(node,socket,stack):
+        key=(tuple(n.as_pointer() for n in stack),node.as_pointer(),socket.identifier if socket else '')
+        if key in visited: return
+        visited.add(key)
+        def follow(inp):
+            tree_id=inp.id_data.as_pointer()
+            if tree_id not in links:
+                links[tree_id]={l.to_socket.as_pointer():l for l in inp.id_data.links if l.is_valid and not l.is_muted}
+            link=links[tree_id].get(inp.as_pointer())
+            if link:
+                rows.append((key,inp.identifier,link.from_socket.as_pointer()))
+                walk(link.from_node,link.from_socket,stack)
+            else: rows.append((key,inp.identifier,socket_value(getattr(inp,'default_value',None))))
+        rows.append((key,node.bl_idname,node.mute))
+        if node.mute and socket:
+            for link in node.internal_links:
+                if link.to_socket==socket: follow(link.from_socket)
+            return
+        if node.type=='GROUP_INPUT' and stack and socket:
+            outer=stack[-1]
+            inp=next((i for i in outer.inputs if i.identifier==socket.identifier),None)
+            if inp is not None:
+                stack=stack[:-1]
+                follow(inp)
+            return
+        group=getattr(node,'node_tree',None)
+        if group and socket:
+            dependencies.add(group.session_uid)
+            out=next((n for n in group.nodes if n.type=='GROUP_OUTPUT' and n.is_active_output),None)
+            if out:
+                inp=next((i for i in out.inputs if i.identifier==socket.identifier),None)
+                if inp is not None:
+                    stack=stack+(node,)
+                    follow(inp)
+            return
+        image=getattr(node,'image',None)
+        if image: dependencies.add(image.session_uid)
+        for prop in node.bl_rna.properties:
+            if prop.identifier in bpy.types.Node.bl_rna.properties or prop.identifier.startswith('bl_'): continue
+            if not prop.is_readonly or prop.type in {'POINTER','COLLECTION'}:
+                rows.append((key,prop.identifier,socket_value(getattr(node,prop.identifier))))
+        if socket and hasattr(socket,'default_value'): rows.append((key,socket_value(socket.default_value)))
+        for inp in node.inputs:
+            if inp.enabled: follow(inp)
+    for node in tree.nodes:
+        if node.type=='OUTPUT_MATERIAL' and node.is_active_output: walk(node,None,())
+    return hash(repr(rows)),dependencies
+
+
 def enqueue(item):
     uid = item.session_uid
+    if isinstance(item,bpy.types.Material) and uid not in R.material_states:
+        R.material_states[uid]=material_state(item)
     if uid not in R.attempted:
         R.attempted.add(uid)
         R.queue.append(uid)
@@ -403,6 +467,10 @@ def affected_tiles(changes):
 
 
 def flush_preview_changes():
+    if R.material_jobs and not bpy.app.is_job_running('RENDER_PREVIEW'):
+        for uid in R.material_jobs: R.textures.pop(uid,None)
+        R.material_jobs.clear()
+        R.redraw_until=time.monotonic()+.5
     if not R.dirty_previews: return
     now=time.monotonic()
     pending=[uid for uid,deadline in R.dirty_previews.items() if deadline<=now]
@@ -417,7 +485,24 @@ def flush_preview_changes():
             R.geometry_outputs[uid]=state
             if previous==state: continue
         changed.append(uid)
-    if changed: discard_previews(affected_tiles(changed),direct=True)
+    if changed:
+        affected=affected_tiles(changed)
+        keep_parents=set(changed)
+        skip_parents=set()
+        for uid in tuple(affected):
+            material=resolve(uid)
+            if not isinstance(material,bpy.types.Material): continue
+            state=material_state(material)
+            previous=R.material_states.get(uid)
+            R.material_states[uid]=state
+            image_edit=any(dep in state[1] and isinstance(resolve(dep),bpy.types.Image) for dep in changed)
+            if previous==state and not image_edit:
+                affected.discard(uid)
+                skip_parents.update(R.preview_parents.get(uid,()))
+            else:
+                keep_parents.update(R.preview_parents.get(uid,()))
+        affected.difference_update(skip_parents-keep_parents)
+        discard_previews(affected,direct=True)
     for uid in pending: R.group_children.pop(uid,None)
 
 
@@ -464,7 +549,9 @@ def preview_tick():
     # Native rendering where supported, semantic drawings everywhere else.
     if isinstance(item, (bpy.types.Object, bpy.types.Collection, bpy.types.Material,
                          bpy.types.World, bpy.types.NodeTree, bpy.types.Action)):
-        try: item.asset_generate_preview()
+        try:
+            item.asset_generate_preview()
+            if isinstance(item,bpy.types.Material): R.material_jobs.add(item.session_uid)
         except (RuntimeError, TypeError): pass
 
 

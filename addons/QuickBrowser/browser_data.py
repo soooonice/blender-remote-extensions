@@ -117,6 +117,17 @@ R.type_batches={}
 R.geometry_outputs={}
 
 
+def socket_value(data,depth=0):
+    if isinstance(data,bpy.types.ID): return data.session_uid
+    if isinstance(data,bpy.types.bpy_struct):
+        if depth>=4: return data.bl_rna.identifier
+        return tuple((p.identifier,socket_value(getattr(data,p.identifier),depth+1)) for p in data.bl_rna.properties
+                     if p.identifier not in {'rna_type','id_data','select','is_valid'} and (not p.is_readonly or p.type in {'POINTER','COLLECTION'}))
+    if isinstance(data,(str,int,float,bool,type(None))): return data
+    try: return tuple(socket_value(x,depth+1) for x in data)
+    except TypeError: return str(data)
+
+
 def geometry_output_state(tree):
     """Describe the evaluated branch, excluding node-editor layout and selection."""
     incoming={}
@@ -127,15 +138,6 @@ def geometry_output_state(tree):
     visited=set()
     rows=[]
     groups=set()
-    def value(data,depth=0):
-        if isinstance(data,bpy.types.ID): return data.session_uid
-        if isinstance(data,bpy.types.bpy_struct):
-            if depth>=4: return data.bl_rna.identifier
-            return tuple((p.identifier,value(getattr(data,p.identifier),depth+1)) for p in data.bl_rna.properties
-                         if p.identifier not in {'rna_type','id_data','select','is_valid'} and (not p.is_readonly or p.type in {'POINTER','COLLECTION'}))
-        if isinstance(data,(str,int,float,bool,type(None))): return data
-        try: return tuple(value(x,depth+1) for x in data)
-        except TypeError: return str(data)
     while todo:
         node=todo.pop()
         ptr=node.as_pointer()
@@ -143,7 +145,7 @@ def geometry_output_state(tree):
         visited.add(ptr)
         group=getattr(node,'node_tree',None)
         if group: groups.add(group.session_uid)
-        props=tuple((p.identifier,value(getattr(node,p.identifier))) for p in node.bl_rna.properties
+        props=tuple((p.identifier,socket_value(getattr(node,p.identifier))) for p in node.bl_rna.properties
                     if p.identifier not in bpy.types.Node.bl_rna.properties and not p.identifier.startswith('bl_')
                     and (not p.is_readonly or p.type in {'POINTER','COLLECTION'}))
         inputs=[]
@@ -153,9 +155,9 @@ def geometry_output_state(tree):
             if links:
                 inputs.append((socket.identifier,tuple((l.from_node.as_pointer(),l.from_socket.identifier,l.multi_input_sort_id) for l in links)))
                 todo.extend(l.from_node for l in links)
-            else: inputs.append((socket.identifier,value(getattr(socket,'default_value',None))))
+            else: inputs.append((socket.identifier,socket_value(getattr(socket,'default_value',None))))
         # Value and RGB nodes store their editable constants on output sockets.
-        outputs=tuple((sock.identifier,value(sock.default_value)) for sock in node.outputs if hasattr(sock,'default_value'))
+        outputs=tuple((sock.identifier,socket_value(sock.default_value)) for sock in node.outputs if hasattr(sock,'default_value'))
         rows.append((ptr,node.bl_idname,node.mute,props,tuple(inputs),outputs))
     return hash(repr(sorted(rows))),groups
 
