@@ -23,7 +23,8 @@ R.material_jobs=set()
 
 
 def material_state(mat):
-    tree=mat.node_tree
+    is_group=isinstance(mat,bpy.types.ShaderNodeTree)
+    tree=mat if is_group else mat.node_tree
     if not tree: return (tuple(mat.diffuse_color),mat.metallic,mat.roughness),set()
     rows=[]
     dependencies=set()
@@ -71,11 +72,25 @@ def material_state(mat):
             if not prop.is_readonly or prop.type in {'POINTER','COLLECTION'}:
                 rows.append((key,prop.identifier,socket_value(getattr(node,prop.identifier))))
         if socket and hasattr(socket,'default_value'): rows.append((key,socket_value(socket.default_value)))
+        if is_group and not stack and node.type=='GROUP_OUTPUT':
+            socket=preview_socket(node.inputs)
+            if socket: follow(socket)
+            return
         for inp in node.inputs:
             if inp.enabled: follow(inp)
     for node in tree.nodes:
-        if node.type=='OUTPUT_MATERIAL' and node.is_active_output: walk(node,None,())
+        if node.type==('GROUP_OUTPUT' if is_group else 'OUTPUT_MATERIAL') and node.is_active_output: walk(node,None,())
     return hash(repr(rows)),dependencies
+
+
+def preview_socket(sockets):
+    return next((s for s in sockets if s.type=='SHADER'),None) or next(
+        (s for s in sockets if s.type in {'RGBA','VALUE','VECTOR','INT','BOOLEAN'}),None)
+
+
+def track_shader_group(group):
+    if group.session_uid not in R.material_states:
+        R.material_states[group.session_uid]=material_state(group)
 
 
 def enqueue(item):
@@ -103,8 +118,7 @@ def preview_group_material(key,own):
             node=tree.nodes.new('ShaderNodeGroup')
             node.node_tree=group
         if idx==len(groups)-1:
-            socket=next((s for s in node.outputs if s.type=='SHADER'),None)
-            if socket is None: socket=next((s for s in node.outputs if s.type in {'RGBA','VALUE','VECTOR','INT','BOOLEAN'}),None)
+            socket=preview_socket(node.outputs)
             if socket is None: return None
             if socket.type!='SHADER':
                 emission=tree.nodes.new('ShaderNodeEmission')
@@ -491,14 +505,14 @@ def flush_preview_changes():
         skip_parents=set()
         for uid in tuple(affected):
             material=resolve(uid)
-            if not isinstance(material,bpy.types.Material): continue
+            if not isinstance(material,(bpy.types.Material,bpy.types.ShaderNodeTree)): continue
             state=material_state(material)
             previous=R.material_states.get(uid)
             R.material_states[uid]=state
             image_edit=any(dep in state[1] and isinstance(resolve(dep),bpy.types.Image) for dep in changed)
             if previous==state and not image_edit:
                 affected.discard(uid)
-                skip_parents.update(R.preview_parents.get(uid,()))
+                if isinstance(material,bpy.types.Material): skip_parents.update(R.preview_parents.get(uid,()))
             else:
                 keep_parents.update(R.preview_parents.get(uid,()))
         affected.difference_update(skip_parents-keep_parents)

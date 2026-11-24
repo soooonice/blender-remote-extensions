@@ -15,6 +15,7 @@ from .browser_data import tree_rows
 from .browser_data import view
 from .previews import enqueue
 from .previews import mesh_wire
+from .previews import track_shader_group
 from .previews import native_texture
 from .previews import raster_thumbnail
 from bpy.props import BoolProperty
@@ -195,6 +196,7 @@ def draw_thumbnail_content(item,x,y,size,ancestors):
                 return
             key=(ancestors[0],parent.session_uid,item.session_uid) if ancestors and isinstance(resolve(ancestors[0]),bpy.types.Scene) else (parent.session_uid,item.session_uid)
         else:
+            track_shader_group(item)
             context_ids=tuple(uid for uid in ancestors if isinstance(resolve(uid),(bpy.types.Material,bpy.types.ShaderNodeTree)))
             key=(*context_ids,item.session_uid)
         if key not in R.attempted:

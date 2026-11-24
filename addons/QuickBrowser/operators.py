@@ -73,6 +73,19 @@ def parent_object(v,mat,scene):
     return next((obj for obj in scene.objects if any(s.material==mat for s in obj.material_slots)),None)
 
 
+def shader_route(root,target):
+    pending=[(root,())]
+    seen=set()
+    while pending:
+        tree,path=pending.pop()
+        if tree==target: return path
+        if tree in seen: continue
+        seen.add(tree)
+        pending.extend((node.node_tree,path+(node,)) for node in reversed(list(tree.nodes))
+                       if node.type=='GROUP' and node.node_tree)
+    return None
+
+
 def show_shader(context,v,mat,create):
     if isinstance(mat,bpy.types.Material):
         path=list(v['path'])+list(v.get('clicked_path',()))
@@ -100,6 +113,11 @@ def show_shader(context,v,mat,create):
             candidate=owner.node_tree if isinstance(owner,bpy.types.Material) else owner
             if isinstance(candidate,type(tree)) and candidate!=tree:
                 chain.append(candidate)
+    if group and kind=='shader' and not any(isinstance(resolve(uid),bpy.types.Material) for uid in ids):
+        for material in bpy.data.materials:
+            if material.node_tree and shader_route(material.node_tree,chain[0] if chain else tree) is not None:
+                chain.insert(0,material.node_tree)
+                break
     chain.append(tree)
     if not temporary:
         path=[resolve(uid) for uid in (*v['path'],*v.get('clicked_path',()))]
@@ -117,6 +135,21 @@ def show_shader(context,v,mat,create):
                 obj.modifiers.active=modifier
             window.view_layer.objects.active=obj
             break
+    if group and kind=='shader':
+        # Let Blender establish the unpinned editor's owner before entering groups.
+        region=next((r for r in area.regions if r.type=='WINDOW'),None)
+        with context.temp_override(window=window,area=area,region=region):
+            if not temporary: bpy.ops.node.group_edit.poll()
+            if not space.path or space.path[0].node_tree!=chain[0]:
+                space.path.start(chain[0])
+            else:
+                while len(space.path)>1: space.path.pop()
+            for parent,child in zip(chain,chain[1:]):
+                for node in shader_route(parent,child) or ():
+                    node.id_data.nodes.active=node
+                    space.path.append(node.node_tree,node=node)
+        area.tag_redraw()
+        return
     space.path.start(chain[0])
     for parent,child in zip(chain,chain[1:]):
         node=next((n for n in parent.nodes if getattr(n,'node_tree',None)==child),None)
@@ -142,7 +175,7 @@ def open_item(context,v,uid):
     if state is None: return
     clicked=v.get('clicked_path',())
     owner=resolve(clicked[-2]) if len(clicked)>1 else current(v)
-    if isinstance(item,(bpy.types.GeometryNodeTree,bpy.types.ShaderNodeTree)) and not group_folder(item,owner):
+    if isinstance(item,(bpy.types.GeometryNodeTree,bpy.types.ShaderNodeTree)) and (isinstance(item,bpy.types.ShaderNodeTree) or not group_folder(item,owner)):
         show_shader(context,v,item,True)
         return
     if state.query.strip() and not v.get('pin_contents') and not v.get('browse_result') and item:
