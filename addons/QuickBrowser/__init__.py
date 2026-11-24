@@ -31,6 +31,9 @@ from .ui import draw
 from .ui import header_draw
 from .ui import restore_nav
 from .ui import ui_state
+from .ui import QuickBrowserPreferences
+from .previews import finish_edits
+from .ui import preview_progress
 from bpy.app.handlers import persistent
 from bpy.props import CollectionProperty
 import blf
@@ -94,6 +97,9 @@ def invalidate(*args):
 
 @persistent
 def load_reset(*args):
+    R.solid_signatures.clear()
+    R.edit_hold.clear()
+    R.shade_overrides.clear()
     R.remap_pairs.clear()
     R.scene_loose.clear()
     R.editor_returns.clear()
@@ -103,6 +109,8 @@ def load_reset(*args):
 
 def tick():
     if not R.alive: return None
+    finish_edits()
+    preview_progress()
     preview_active=bool(R.queue or R.pending_flat or R.dirty_previews) or bpy.app.is_job_running('RENDER_PREVIEW')
     if preview_active: R.redraw_until=time.monotonic()+.8
     if R.index_dirty and R.views and not any(v.get('box') for v in R.views.values()) and time.monotonic()-R.last_index>3: rebuild()
@@ -211,7 +219,6 @@ def unregister():
     R.classes.clear(); R.views.clear(); R.textures.clear(); R.wires.clear()
 
 
-from .ui import QuickBrowserPreferences
 
 
 def build_initial_index():

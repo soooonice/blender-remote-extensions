@@ -23,6 +23,7 @@ from .ui import CARD_FOOTER
 from .ui import geometry
 from .ui import restore_nav
 from .ui import ui_state
+from .previews import set_shading
 from bl_operators.wm import BatchRenameAction
 from bl_operators.wm import WM_OT_batch_rename
 from bpy.props import BoolProperty
@@ -227,7 +228,8 @@ class SCB_OT_native(bpy.types.Operator):
     def execute(self,context):
         v=view(context)
         if not v: return {'CANCELLED'}
-        if self.action=='PIN':
+        if self.action in {'SOLID','TEXTURE'}: set_shading(self.action)
+        elif self.action=='PIN':
             v['pin']=not v.get('pin',False)
             if v['pin']:
                 v.pop('pin_target',None)

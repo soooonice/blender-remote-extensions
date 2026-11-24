@@ -18,6 +18,7 @@ from .previews import mesh_wire
 from .previews import track_shader_group
 from .previews import native_texture
 from .previews import raster_thumbnail
+from .previews import shade_target, shade_mode
 from bpy.props import BoolProperty
 from bpy.props import EnumProperty
 from bpy.props import IntProperty
@@ -180,6 +181,12 @@ def thumbnail(item, x, y, size, ancestors=()):
 
 
 def draw_thumbnail_content(item,x,y,size,ancestors):
+    if isinstance(item,bpy.types.Object) and item.type=='EMPTY':
+        font_size=max(10,int(size*.15))
+        blf.size(0,font_size)
+        width,height=blf.dimensions(0,'Empty')
+        text(x+(size-width)*.5,y+(size-height)*.5,'Empty',font_size)
+        return
     if isinstance(item,bpy.types.Palette):
         colors = list(item.colors)
         n = max(1, math.ceil(math.sqrt(len(colors))))
@@ -283,7 +290,7 @@ def draw_thumbnail_content(item,x,y,size,ancestors):
         lines([(x+size*(.5+.56*a),y+size*(.5+.56*b)) for a,b in glyph],(.95,.76,.35,1))
         return
     preview_key=None
-    if isinstance(item,bpy.types.Object) and item.type in {'CURVE','FONT','MESH'}:
+    if shade_target(item):
         scene=resolve(ancestors[0]) if ancestors else None
         if not isinstance(scene,bpy.types.Scene) or scene.objects.get(item.name)!=item:
             scene=bpy.context.scene
@@ -345,8 +352,41 @@ def geometry(width, height, scale, v):
     tile = v.get('tile_size',DEFAULT_TILE_SIZE)*scale
     gap = 10*scale
     start = sidebar+gap
-    columns = max(1,int((width-start)/(tile+gap)))
+    columns = max(1,int((width-start-12*scale)/(tile+gap)))
     return sidebar,tile,gap,start,columns
+
+
+def scrollbar_metrics(top,bottom,maximum,offset,scale):
+    height=top-bottom
+    if maximum<=0 or height<20*scale: return None
+    thumb=min(height-1,max(18*scale,height*height/(height+maximum)))
+    travel=height-thumb
+    return top-thumb-travel*min(1,max(0,offset/maximum)),thumb,travel
+
+
+def rounded_bar(x,y,w,h,color):
+    radius=min(w,h)*.5
+    if radius<=0: return
+    vertices=[]
+    for cx,cy,start in ((x+w-radius,y+h-radius,0),(x+radius,y+h-radius,90),
+                        (x+radius,y+radius,180),(x+w-radius,y+radius,270)):
+        for i in range(5):
+            angle=math.radians(start+i*22.5)
+            vertices.append((cx+radius*math.cos(angle),cy+radius*math.sin(angle)))
+    shader=gpu.shader.from_builtin('UNIFORM_COLOR')
+    shader.bind()
+    shader.uniform_float('color',color)
+    batch_for_shader(shader,'TRI_FAN',{'pos':vertices}).draw(shader)
+
+
+def preview_progress():
+    remaining=len(R.queue)+len(R.pending_flat)+len(R.material_jobs)
+    if not remaining:
+        R.progress_peak=0
+        return None
+    R.progress_peak=max(getattr(R,'progress_peak',0),remaining)
+    if any(v.get('box') for v in R.views.values()): return None
+    return 1-remaining/R.progress_peak
 
 
 def slot_layout(parent,entries):
@@ -446,6 +486,13 @@ def draw():
                         quad(ex,ey,21*scale,21*scale,(.075,.075,.075,.96))
                     text(ex+3*scale,ey+4*scale,'✎',15*scale,(.94,.94,.94,1))
                     hit((ex,ey,22*scale,22*scale),'edit',item.session_uid)
+                if shade_target(item):
+                    for i,mode in enumerate(('SOLID','TEXTURE')):
+                        bx=x+tile-(46-22*i)*scale; by=y+41*scale
+                        active=shade_mode(uid)==mode
+                        color=(.22,.58,1.0,1) if active else META_COLOR
+                        text(bx+(6 if i==0 else 1)*scale,by+3*scale,'●' if i==0 else '◐',15*scale,color)
+                        hit((bx,by,21*scale,21*scale),mode,uid)
                 sx=x+tile-17*scale
                 count=str(item.users)
                 blf.size(0,9*scale)
@@ -465,7 +512,26 @@ def draw():
                          (left,low,1,high-low),(right-1,low,1,high-low)):
                 quad(*rect,color)
         if not positions: text(start+12,top-35,'No items',12,fg)
-        text(start,9*scale,R.message or f'{len(positions)} items | Double-click: open | Drag: viewport / collection',10*scale,fg,width=w-start-8)
+        bar=scrollbar_metrics(top,bottom,v['max_scroll'],v['scroll'],scale)
+        v['scrollbar']=None
+        if bar:
+            sy,sh,travel=bar
+            left=w-13*scale
+            v['scrollbar']=(left,bottom,w,top,sy,sh,travel)
+            style=theme.user_interface.wcol_scroll
+            rounded_bar(left+2*scale,bottom,9*scale,top-bottom,tuple(style.inner))
+            rounded_bar(left+2*scale,sy,9*scale,sh,tuple(style.item))
+        label=f'{len(positions)} items'
+        text(start,9*scale,label,10*scale,fg)
+        fraction=preview_progress()
+        if fraction is not None:
+            px=start+blf.dimensions(0,label)[0]+9*scale
+            length=min(140*scale,w-px-18*scale)
+            if length>12*scale:
+                quad(px,7*scale,scale,12*scale,(*fg[:3],.45))
+                px+=8*scale
+                rounded_bar(px,10*scale,length,6*scale,(.18,.18,.18,1))
+                rounded_bar(px,10*scale,length*fraction,6*scale,(.23,.52,.83,1))
     finally:
         gpu.state.blend_set('NONE')
 
@@ -675,6 +741,9 @@ def header_draw(self,context):
     layout.separator_spacer()
     layout.prop(state,'query',text='',icon='VIEWZOOM')
     layout.row(align=True).prop(state,'scope',expand=True,icon_only=True)
+    modes=layout.row(align=True)
+    for mode in ('SOLID','TEXTURE'):
+        modes.operator('scb.native',text='',icon='SHADING_'+mode,depress=R.shade_default==mode).action=mode
     slider=layout.row(align=True)
     slider.ui_units_x=4
     slider.prop(state,'tile_size',text='',slider=True)

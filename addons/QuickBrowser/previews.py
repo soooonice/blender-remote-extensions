@@ -5,6 +5,10 @@ from .browser_data import preview_pixels
 from .browser_data import rebuild
 from .browser_data import resolve
 from .browser_data import root_modifier
+from .browser_data import socket_value
+from .browser_data import akey
+from array import array
+from gpu_extras.batch import batch_for_shader
 from bpy.app.handlers import persistent
 from collections import deque
 from gpu_extras.presets import draw_texture_2d
@@ -16,7 +20,6 @@ import math
 import time
 
 
-from .browser_data import socket_value
 
 R.material_states={}
 R.material_jobs=set()
@@ -218,18 +221,167 @@ def curve_camera_fit(mesh,matrix,rotation):
     return center,max(1e-6,float(np.linalg.norm(span))*.5),max(1e-6,max(span[:2])/.9)
 
 
+R.shade_default='SOLID'
+R.shade_overrides={}
+SHAPE_TYPES={'MESH','CURVE','FONT','SURFACE','META','CURVES','POINTCLOUD','VOLUME','GREASEPENCIL'}
+
+
+def shade_target(obj):
+    return isinstance(obj,bpy.types.Object) and obj.type in SHAPE_TYPES
+
+
+def shade_mode(uid):
+    return R.shade_overrides.get(uid,R.shade_default)
+
+
+def set_shading(mode,uid=None):
+    if uid is None:
+        changed={obj.session_uid for obj in bpy.data.objects if shade_target(obj) and shade_mode(obj.session_uid)!=mode}
+        R.shade_default=mode
+        R.shade_overrides.clear()
+    else:
+        changed={uid} if shade_mode(uid)!=mode else set()
+        if mode==R.shade_default: R.shade_overrides.pop(uid,None)
+        else: R.shade_overrides[uid]=mode
+    if changed: discard_previews(changed,direct=True)
+    for win in bpy.context.window_manager.windows:
+        for area in win.screen.areas:
+            if akey(win,area) in R.views: area.tag_redraw()
+
+
+def flat_shader():
+    if getattr(R,'flat_shader',None) is None:
+        interface=gpu.types.GPUStageInterfaceInfo('qb_flat_surface')
+        interface.smooth('VEC3','surfacePos')
+        info=gpu.types.GPUShaderCreateInfo()
+        info.vertex_in(0,'VEC3','position')
+        info.vertex_out(interface)
+        info.fragment_out(0,'VEC4','color')
+        info.push_constant('FLOAT','depthRatio')
+        info.vertex_source('void main(){surfacePos=position; gl_Position=vec4(position.xy,-position.z*depthRatio,1.0);}')
+        info.fragment_source('void main(){vec3 n=normalize(cross(dFdx(surfacePos),dFdy(surfacePos)));float g=0.05+0.45*max(dot(n,vec3(-0.48,0.80,0.36)),0.0);color=vec4(vec3(g),1.0);}')
+        R.flat_shader=gpu.shader.create_from_info(info)
+    return R.flat_shader
+
+
+R.edit_hold=set()
+
+def held_object(uid):
+    obj=resolve(uid)
+    if shade_target(obj) and (obj.mode=='EDIT' or getattr(obj.data,'is_editmode',False)):
+        R.edit_hold.add(uid)
+        return True
+    return uid in R.edit_hold
+
+
+def finish_edits():
+    for uid in tuple(R.edit_hold):
+        obj=resolve(uid)
+        if not obj or (obj.mode!='EDIT' and not getattr(obj.data,'is_editmode',False)):
+            R.edit_hold.remove(uid)
+            if obj: R.dirty_previews[uid]=time.monotonic()+.5
+
+
+def preview_frame(item,mesh,matrix,corners):
+    center=sum(corners,Vector())/len(corners)
+    radius=max(.001,max((c-center).length for c in corners))
+    direction=Vector((1.4,-2,1.25)).normalized()
+    rotation=(-direction).to_track_quat('-Z','Y')
+    frame_size=radius*2.12
+    curve=item.data if isinstance(item,bpy.types.Object) else item
+    if isinstance(curve,bpy.types.TextCurve) and mesh.vertices:
+        import numpy as np
+        coords=np.empty(len(mesh.vertices)*3,dtype=np.float32)
+        mesh.vertices.foreach_get('co',coords)
+        spans=np.ptp(coords.reshape(-1,3),axis=0)
+        if spans[2]<=max(1e-8,max(spans[:2])*1e-7):
+            rotation=matrix.to_quaternion()
+            direction=rotation @ Vector((0,0,1))
+    if isinstance(curve,bpy.types.Curve) and mesh.vertices and len(corners)==8:
+        center,radius,frame_size=curve_camera_fit(mesh,matrix,rotation)
+    return center,radius,direction,rotation,frame_size
+
+
+def mesh_signature(mesh,matrix):
+    import hashlib
+    import numpy as np
+    mesh.calc_loop_triangles()
+    xyz=np.empty(len(mesh.vertices)*3,dtype='f')
+    indices=np.empty(len(mesh.loop_triangles)*3,dtype='i')
+    mesh.vertices.foreach_get('co',xyz)
+    mesh.loop_triangles.foreach_get('vertices',indices)
+    digest=hashlib.blake2b(digest_size=16)
+    for values in (xyz,indices,np.asarray(matrix.to_3x3(),dtype='f')): digest.update(np.ascontiguousarray(values))
+    return digest.digest()
+
+
+R.solid_signatures={}
+
+
+def solid_geometry_changed(obj):
+    records=[(key,value) for key,value in R.solid_signatures.items() if key[-1]==obj.session_uid]
+    if not records: return True
+    for (scene_id,uid),old in records:
+        scene=resolve(scene_id)
+        if not scene: return True
+        layer=next((vl for vl in scene.view_layers if vl.objects.get(obj.name)==obj),None)
+        if not layer: return True
+        with bpy.context.temp_override(scene=scene,view_layer=layer):
+            evaluated=obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            if evaluated.type!='MESH' or needs_component_preview(evaluated): return True
+            if mesh_signature(evaluated.data,evaluated.matrix_world)!=old: return True
+    return False
+
+
+def solid_mesh_pixels(mesh,matrix,frame):
+    """Draw evaluated triangles into a small depth buffer without creating a render scene."""
+    import numpy as np
+    mesh.calc_loop_triangles()
+    if not mesh.loop_triangles: return None
+    xyz=np.empty(len(mesh.vertices)*3,dtype='f')
+    mesh.vertices.foreach_get('co',xyz)
+    tris=np.empty(len(mesh.loop_triangles)*3,dtype='i')
+    mesh.loop_triangles.foreach_get('vertices',tris)
+    center,radius,direction,rotation,width=frame
+    view=rotation.to_matrix().transposed()
+    basis=view @ matrix.to_3x3()
+    pos=xyz.reshape(-1,3) @ np.asarray(basis,dtype='f').T
+    pos+=np.asarray(view @ (matrix.translation-center),dtype='f')
+    pos*=2/width
+    depth_ratio=width/(4*radius)
+    shader=flat_shader()
+    batch=batch_for_shader(shader,'TRIS',{'position':pos},indices=tris.reshape(-1,3))
+    buffer=gpu.types.GPUOffScreen(128,128)
+    depth=gpu.state.depth_test_get();mask=gpu.state.depth_mask_get();blend=gpu.state.blend_get()
+    viewport=gpu.state.viewport_get();clip=gpu.state.scissor_get()
+    try:
+        with buffer.bind(),gpu.matrix.push_pop(),gpu.matrix.push_pop_projection():
+            gpu.state.viewport_set(0,0,128,128);gpu.state.scissor_set(0,0,128,128)
+            gpu.state.depth_test_set('LESS_EQUAL');gpu.state.depth_mask_set(True);gpu.state.blend_set('NONE')
+            gpu.matrix.load_identity();gpu.matrix.load_projection_matrix(Matrix.Identity(4))
+            fb=gpu.state.active_framebuffer_get();fb.clear(color=(0,0,0,0),depth=1)
+            shader.bind();shader.uniform_float("depthRatio",depth_ratio);batch.draw(shader)
+            pixels=fb.read_color(0,0,128,128,4,0,'FLOAT')
+            pixels.dimensions=128*128*4
+            return array('f',pixels)
+    finally:
+        gpu.state.depth_test_set(depth);gpu.state.depth_mask_set(mask);gpu.state.blend_set(blend)
+        gpu.state.viewport_set(*viewport);gpu.state.scissor_set(*clip);buffer.free()
+
+
 def render_mesh_preview(item,key=None):
     # Render evaluated geometry with the actual material output in an isolated studio.
     import tempfile, os
     source_scene=resolve(key[0]) if key and isinstance(item,bpy.types.Object) else None
     graph=bpy.context.evaluated_depsgraph_get() if not key else None
     obj=item.evaluated_get(graph) if graph else None
+    solid=shade_target(item) and shade_mode(item.session_uid)=='SOLID'
     temporary=[]
     def own(block):
         temporary.append(block)
         return block
     try:
-        studio=own(bpy.data.scenes.new('.SCB preview'))
+        studio=None if source_scene and solid else own(bpy.data.scenes.new('.SCB preview'))
         if isinstance(item,bpy.types.Curve):
             source=own(bpy.data.objects.new('Preview spline',item))
             bpy.context.scene.collection.objects.link(source)
@@ -250,6 +402,13 @@ def render_mesh_preview(item,key=None):
                 graph=bpy.context.evaluated_depsgraph_get()
                 obj=item.evaluated_get(graph)
                 R.object_axes[item.session_uid]=tuple(v for row in obj.matrix_world.to_3x3() for v in row)
+                if solid and obj.type=='MESH' and not needs_component_preview(obj) and obj.data.polygons:
+                    corners=[obj.matrix_world @ Vector(c) for c in obj.bound_box]
+                    frame=preview_frame(item,obj.data,obj.matrix_world,corners)
+                    R.mesh_pixels[key]=solid_mesh_pixels(obj.data,obj.matrix_world,frame)
+                    R.solid_signatures[key]=mesh_signature(obj.data,obj.matrix_world)
+                    return
+                if studio is None: studio=own(bpy.data.scenes.new('.SCB preview'))
                 components=obj.evaluated_geometry()
                 classic_curve=obj.type in {'CURVE','FONT'} and not (components.instance_references() or components.pointcloud or components.volume or components.grease_pencil)
                 if classic_curve:
@@ -298,28 +457,16 @@ def render_mesh_preview(item,key=None):
                 return
             matrix=obj.matrix_world.copy()
             corners=[matrix @ Vector(c) for c in obj.bound_box]
+        if solid and mesh.polygons and len(studio.objects)==0:
+            R.mesh_pixels[key or item.session_uid]=solid_mesh_pixels(mesh,matrix,preview_frame(item,mesh,matrix,corners))
+            return
         subject=own(bpy.data.objects.new('Preview subject',mesh))
         studio.collection.objects.link(subject)
         subject.matrix_world=matrix
         if not key:
             for index,slot in enumerate(obj.material_slots):
                 if index<len(mesh.materials): mesh.materials[index]=slot.material
-        center=sum(corners,Vector())/len(corners)
-        radius=max(.001,max((c-center).length for c in corners))
-        direction=Vector((1.4,-2,1.25)).normalized()
-        rotation=(-direction).to_track_quat('-Z','Y')
-        frame_size=radius*2.12
-        curve=item.data if isinstance(item,bpy.types.Object) else item
-        if isinstance(curve,bpy.types.TextCurve) and mesh.vertices:
-            import numpy as np
-            coords=np.empty(len(mesh.vertices)*3,dtype=np.float32)
-            mesh.vertices.foreach_get('co',coords)
-            spans=np.ptp(coords.reshape(-1,3),axis=0)
-            if spans[2]<=max(1e-8,max(spans[:2])*1e-7):
-                rotation=matrix.to_quaternion()
-                direction=rotation @ Vector((0,0,1))
-        if isinstance(curve,bpy.types.Curve) and mesh.vertices and len(corners)==8:
-            center,radius,frame_size=curve_camera_fit(mesh,matrix,rotation)
+        center,radius,direction,rotation,frame_size=preview_frame(item,mesh,matrix,corners)
         cam=own(bpy.data.cameras.new('Preview lens'))
         camera=own(bpy.data.objects.new('Preview camera',cam))
         studio.collection.objects.link(camera)
@@ -328,14 +475,19 @@ def render_mesh_preview(item,key=None):
         cam.type='ORTHO'; cam.ortho_scale=frame_size
         cam.clip_start=radius*.01; cam.clip_end=radius*12
         studio.camera=camera
-        for direction,power in [((2,-3,4),480),((-2,1,2),280)]:
+        for direction,power in ([] if solid else [((2,-3,4),480),((-2,1,2),280)]):
             light=own(bpy.data.lights.new('Preview softbox','AREA'))
             lamp=own(bpy.data.objects.new('Preview light',light))
             studio.collection.objects.link(lamp)
             lamp.location=center+Vector(direction).normalized()*radius*3
             lamp.rotation_euler=(center-lamp.location).to_track_quat('-Z','Y').to_euler()
             light.energy = .1 * power * radius**2; light.size=radius*2
-        studio.render.engine='CYCLES'; studio.cycles.samples=8
+        if solid:
+            studio.render.engine='BLENDER_WORKBENCH'
+            studio.display.shading.color_type='SINGLE'
+            studio.display.shading.single_color=(.32,.32,.32)
+        else:
+            studio.render.engine='CYCLES'; studio.cycles.samples=8
         studio.render.film_transparent=True
         studio.render.resolution_x=studio.render.resolution_y=128
         studio.render.resolution_percentage=100
@@ -349,7 +501,7 @@ def render_mesh_preview(item,key=None):
             R.mesh_pixels[key or item.session_uid]=pixels
             R.textures.pop(key or item.session_uid,None)
     finally:
-        bpy.data.batch_remove(ids=temporary)
+        if temporary: bpy.data.batch_remove(ids=temporary)
 
 
 def flat_group_preview(key):
@@ -431,6 +583,7 @@ def preview_changes(scene,graph):
     objects=set()
     for update in graph.updates:
         block=update.id.original
+        if shade_target(block) and held_object(block.session_uid): continue
         if block.session_uid not in R.ids and block.session_uid not in R.material_owner:
             R.index_dirty=True
             continue
@@ -446,7 +599,7 @@ def preview_changes(scene,graph):
                 shading_changed=slots!=R.slot_ids.get(block.session_uid,slots)
                 R.slot_ids[block.session_uid]=slots
                 if shading_changed: R.index_dirty=True
-            if update.is_updated_geometry or shading_changed or (update.is_updated_transform and previous is not None and axes!=previous):
+            if update.is_updated_geometry or (shading_changed and shade_mode(block.session_uid)!='SOLID') or (update.is_updated_transform and previous is not None and axes!=previous):
                 objects.add(block.session_uid)
         elif isinstance(block,(bpy.types.Mesh,bpy.types.Curve,bpy.types.Key,bpy.types.Material,
                                bpy.types.NodeTree,bpy.types.Image,bpy.types.Armature,bpy.types.Action,bpy.types.Palette,bpy.types.Light,bpy.types.Camera,bpy.types.VectorFont)):
@@ -516,7 +669,14 @@ def flush_preview_changes():
             else:
                 keep_parents.update(R.preview_parents.get(uid,()))
         affected.difference_update(skip_parents-keep_parents)
-        discard_previews(affected,direct=True)
+        geometry_changes=[uid for uid in changed if not isinstance(resolve(uid),(bpy.types.Material,bpy.types.ShaderNodeTree,bpy.types.Image))]
+        geometry_targets=affected_tiles(geometry_changes)
+        for uid in tuple(affected):
+            obj=resolve(uid)
+            if shade_target(obj) and shade_mode(uid)=='SOLID':
+                if uid not in geometry_targets or (not held_object(uid) and not solid_geometry_changed(obj)):
+                    affected.discard(uid)
+        discard_previews({uid for uid in affected if not held_object(uid)},direct=True)
     for uid in pending: R.group_children.pop(uid,None)
 
 
@@ -547,6 +707,7 @@ def run_preview_job():
 def preview_tick():
     if not R.queue or any(v.get('box') for v in R.views.values()): return
     key=R.queue.popleft()
+    if held_object(key[-1] if isinstance(key,tuple) else key): return
     if isinstance(key,tuple):
         if resolve(key[-1]):
             try:

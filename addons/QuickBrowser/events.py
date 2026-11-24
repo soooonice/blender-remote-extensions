@@ -18,6 +18,7 @@ from .ui import geometry
 from .ui import restore_nav
 from .ui import thumbnail
 from .ui import ui_state
+from .previews import set_shading
 from bpy_extras import view3d_utils
 import bpy
 import gpu
@@ -167,6 +168,17 @@ class SCB_OT_events(bpy.types.Operator):
             return {'CANCELLED'}
         window=context.window
         if not window or window.as_pointer()!=self.window_id: return {'PASS_THROUGH'}
+        drag=getattr(self,'scroll_drag',None)
+        if drag:
+            key,start_y,offset,ratio=drag
+            state=R.views.get(key)
+            if state and event.type=='MOUSEMOVE':
+                state['scroll']=min(state['max_scroll'],max(0,offset+(start_y-event.mouse_y)*ratio))
+                for area in window.screen.areas:
+                    if akey(window,area)==key: area.tag_redraw()
+            if not state or event.type in {'ESC','WINDOW_DEACTIVATE'} or (event.type=='LEFTMOUSE' and event.value=='RELEASE'):
+                self.scroll_drag=None
+            return {'RUNNING_MODAL'}
         if event.type=='Z' and (event.ctrl or event.oskey):
             self.press=None
             self.dragging=False
@@ -292,6 +304,17 @@ class SCB_OT_events(bpy.types.Operator):
             return {'RUNNING_MODAL'}
         if not v or not region: return {'PASS_THROUGH'}
         x,y=event.mouse_x-region.x,event.mouse_y-region.y
+        bar=v.get('scrollbar')
+        if bar and event.type=='LEFTMOUSE' and event.value=='PRESS':
+            left,bottom,right,top,sy,sh,travel=bar
+            if left<=x<=right and bottom<=y<=top:
+                if sy<=y<=sy+sh:
+                    self.scroll_drag=(akey(window,area),event.mouse_y,v['scroll'],v['max_scroll']/travel)
+                else:
+                    page=top-bottom
+                    v['scroll']=min(v['max_scroll'],max(0,v['scroll']+(page if y<sy else -page)))
+                area.tag_redraw()
+                return {'RUNNING_MODAL'}
         sidebar=geometry(region.width,region.height,context.preferences.system.ui_scale,v)[0]
         if getattr(self,'resizing',False):
             if event.type=='MOUSEMOVE':
@@ -371,6 +394,9 @@ class SCB_OT_events(bpy.types.Operator):
             if kind=='shield':
                 with context.temp_override(window=window,area=area,region=region):
                     defer_item_edit(window,area,'FAKE_USER',payload)
+                return {'RUNNING_MODAL'}
+            if kind in {'SOLID','TEXTURE'}:
+                set_shading(kind,payload)
                 return {'RUNNING_MODAL'}
             if kind=='edit':
                 mat=resolve(payload)
