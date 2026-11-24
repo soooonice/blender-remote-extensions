@@ -179,6 +179,7 @@ def unregister():
     R.font_cache.clear()
     R.alive=False; clear_drag()
     getattr(R,'viewport_cache',{}).clear()
+    if bpy.app.timers.is_registered(build_initial_index): bpy.app.timers.unregister(build_initial_index)
     if bpy.app.timers.is_registered(tick): bpy.app.timers.unregister(tick)
     for space,handle in R.handles: space.draw_handler_remove(handle,'WINDOW')
     R.handles.clear()
@@ -196,7 +197,7 @@ def unregister():
         for area in window.screen.areas:
             v=R.views.get(akey(window,area))
             if v: restore_nav(window,area,v)
-    for screen in bpy.data.screens:
+    for screen in getattr(bpy.data,'screens',()):
         for area in screen.areas:
             if area.type=='NODE_EDITOR' and area.ui_type==TREE: area.type='PROPERTIES'
             area.tag_redraw()
@@ -211,6 +212,10 @@ def unregister():
 from .ui import QuickBrowserPreferences
 
 
+def build_initial_index():
+    if R.alive: rebuild()
+
+
 def register():
     R.alive=True
     try:
@@ -221,7 +226,8 @@ def register():
         R.header_original=PROPERTIES_HT_header.draw
         PROPERTIES_HT_header.draw=header_draw
         bpy.types.VIEW3D_MT_object_context_menu.append(reveal_menu)
-        rebuild(); install_filters()
+        install_filters()
+        bpy.app.timers.register(build_initial_index,first_interval=0.0,persistent=True)
         bpy.app.handlers.depsgraph_update_post.append(preview_changes)
         bpy.app.handlers.undo_pre.append(before_history)
         bpy.app.handlers.redo_pre.append(before_history)

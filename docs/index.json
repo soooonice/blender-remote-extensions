@@ -31,7 +31,7 @@
       "id": "content_browser",
       "name": "QuickBrowser",
       "tagline": "Browse scene data-blocks with previews and drag-and-drop",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "type": "add-on",
       "maintainer": "nice",
       "license": [
@@ -42,9 +42,9 @@
       "tags": [
         "User Interface"
       ],
-      "archive_url": "./content_browser-1.0.1.zip",
-      "archive_size": 48012,
-      "archive_hash": "sha256:aea0b21292a60036da45144c03fa0324ee77954cd5bd48a926b5644090594072"
+      "archive_url": "./content_browser-1.0.2.zip",
+      "archive_size": 48137,
+      "archive_hash": "sha256:b0c724d062afba0075ad38d83f06cd50c21c9d0eefa9b45079d8a54ac47a6a89"
     },
     {
       "schema_version": "1.0.0",
